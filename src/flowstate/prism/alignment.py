@@ -4,27 +4,31 @@ Performs point-in-time correct as-of joins across trades, quotes, and bars
 to produce aligned feature tensors for ML training. Guarantees no look-ahead
 bias: each output row contains only data that was observable at the timestamp.
 
+Vectorized implementation using numpy.searchsorted for O(n log m) batch
+lookups without Python-level loops. Grouped joins use numpy advanced indexing
+for per-symbol partitioning, avoiding the O(n * S) nested scan of naive
+implementations.
+
 Key operations:
 - as_of_join: Forward-fill join of a secondary stream onto a primary timeline
 - align_streams: Multi-stream alignment producing a unified wide table
 - TemporalAligner: Stateful engine for batch-level alignment with partition support
-
-All operations work on PyArrow tables and preserve nanosecond precision.
 """
 
 from __future__ import annotations
 
-import bisect
 import logging
 from dataclasses import dataclass, field
 from typing import Literal
 
+import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
 logger = logging.getLogger(__name__)
 
 _NS_DTYPE = pa.int64()
+_INVALID_INDEX = -1  # Sentinel for unmatched rows
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,132 @@ def _to_ns_int64(col: pa.ChunkedArray | pa.Array) -> pa.Array:
     return col
 
 
+def _to_numpy_i64(col: pa.ChunkedArray | pa.Array) -> np.ndarray:
+    """Convert an Arrow column to a numpy int64 array (zero-copy when possible)."""
+    arr = _to_ns_int64(col)
+    return arr.to_numpy(zero_copy_only=False)
+
+
+# ---------------------------------------------------------------------------
+# Vectorized index computation via numpy.searchsorted
+# ---------------------------------------------------------------------------
+
+def _vectorized_backward(
+    left_ts: np.ndarray,
+    right_ts: np.ndarray,
+    tolerance_ns: int | None,
+    allow_exact: bool,
+) -> np.ndarray:
+    """Vectorized backward as-of: for each left[i], find rightmost right[j] <= left[i].
+
+    Uses numpy.searchsorted (C-level binary search over the full array)
+    instead of per-element Python bisect. Returns int64 index array where
+    -1 indicates no match.
+    """
+    n_left = len(left_ts)
+    if allow_exact:
+        # searchsorted('right') gives first index > left_ts[i], so -1 gives <=
+        pos = np.searchsorted(right_ts, left_ts, side="right").astype(np.int64) - 1
+    else:
+        # searchsorted('left') gives first index >= left_ts[i], so -1 gives <
+        pos = np.searchsorted(right_ts, left_ts, side="left").astype(np.int64) - 1
+
+    # Mark out-of-range
+    pos[pos < 0] = _INVALID_INDEX
+
+    # Apply tolerance
+    if tolerance_ns is not None:
+        valid = pos >= 0
+        distances = np.where(valid, left_ts - right_ts[np.clip(pos, 0, len(right_ts) - 1)], 0)
+        pos[valid & (distances > tolerance_ns)] = _INVALID_INDEX
+
+    return pos
+
+
+def _vectorized_forward(
+    left_ts: np.ndarray,
+    right_ts: np.ndarray,
+    tolerance_ns: int | None,
+    allow_exact: bool,
+) -> np.ndarray:
+    """Vectorized forward as-of: for each left[i], find leftmost right[j] >= left[i]."""
+    n_right = len(right_ts)
+    if allow_exact:
+        pos = np.searchsorted(right_ts, left_ts, side="left").astype(np.int64)
+    else:
+        pos = np.searchsorted(right_ts, left_ts, side="right").astype(np.int64)
+
+    pos[pos >= n_right] = _INVALID_INDEX
+
+    if tolerance_ns is not None:
+        valid = pos >= 0
+        distances = np.where(valid, right_ts[np.clip(pos, 0, n_right - 1)] - left_ts, 0)
+        pos[valid & (distances > tolerance_ns)] = _INVALID_INDEX
+
+    return pos
+
+
+def _vectorized_nearest(
+    left_ts: np.ndarray,
+    right_ts: np.ndarray,
+    tolerance_ns: int | None,
+    allow_exact: bool,
+) -> np.ndarray:
+    """Vectorized nearest as-of: find closest right[j] in either direction."""
+    n_right = len(right_ts)
+
+    # Backward candidate
+    back_pos = np.searchsorted(right_ts, left_ts, side="right").astype(np.int64) - 1
+    back_valid = back_pos >= 0
+    back_dist = np.full(len(left_ts), np.iinfo(np.int64).max, dtype=np.int64)
+    back_dist[back_valid] = np.abs(left_ts[back_valid] - right_ts[back_pos[back_valid]])
+
+    # Forward candidate
+    fwd_pos = np.searchsorted(right_ts, left_ts, side="left").astype(np.int64)
+    fwd_valid = fwd_pos < n_right
+    fwd_dist = np.full(len(left_ts), np.iinfo(np.int64).max, dtype=np.int64)
+    fwd_clipped = np.clip(fwd_pos, 0, n_right - 1)
+    fwd_dist[fwd_valid] = np.abs(right_ts[fwd_clipped[fwd_valid]] - left_ts[fwd_valid])
+
+    # Pick closer
+    use_fwd = fwd_dist < back_dist
+    pos = np.where(use_fwd, fwd_pos, back_pos)
+    best_dist = np.minimum(back_dist, fwd_dist)
+
+    # Invalidate
+    pos[(~back_valid) & (~fwd_valid)] = _INVALID_INDEX
+    if not allow_exact:
+        pos[best_dist == 0] = _INVALID_INDEX
+    if tolerance_ns is not None:
+        pos[best_dist > tolerance_ns] = _INVALID_INDEX
+
+    return pos
+
+
+def _vectorized_asof_indices(
+    left_ts: np.ndarray,
+    right_ts_sorted: np.ndarray,
+    cfg: AsOfConfig,
+) -> np.ndarray:
+    """Dispatch to the appropriate vectorized search.
+
+    Returns np.ndarray of int64 indices into right_ts_sorted. -1 = no match.
+    """
+    if len(right_ts_sorted) == 0:
+        return np.full(len(left_ts), _INVALID_INDEX, dtype=np.int64)
+
+    if cfg.direction == "backward":
+        return _vectorized_backward(left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match)
+    elif cfg.direction == "forward":
+        return _vectorized_forward(left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match)
+    else:
+        return _vectorized_nearest(left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
 def as_of_join(
     left: pa.Table,
     right: pa.Table,
@@ -81,6 +211,9 @@ def as_of_join(
     For each row in `left`, finds the most recent row in `right` whose
     timestamp is <= the left timestamp (backward join). Guarantees no
     look-ahead bias.
+
+    Uses numpy.searchsorted for vectorized O(n log m) matching — no
+    Python-level per-row loops.
 
     Args:
         left: Primary timeline table (defines output rows).
@@ -98,23 +231,16 @@ def as_of_join(
     if left.num_rows == 0:
         return left, stats
 
-    # Determine right-side value columns
-    right_value_cols = [
-        c for c in right.schema.names
-        if c != on and c != by
-    ]
-
+    right_value_cols = [c for c in right.schema.names if c != on and c != by]
     if not right_value_cols:
         return left, stats
 
-    # Prefix right columns to avoid collisions
     prefixed_names = {
         c: f"{cfg.right_prefix}{c}" if cfg.right_prefix else c
         for c in right_value_cols
     }
 
     if right.num_rows == 0:
-        # No right data — append null columns
         return _append_null_columns(left, right, right_value_cols, prefixed_names, stats)
 
     if by is not None and by in left.schema.names and by in right.schema.names:
@@ -152,16 +278,16 @@ def _as_of_join_ungrouped(
     cfg: AsOfConfig,
     stats: AlignmentStats,
 ) -> pa.Table:
-    """As-of join without grouping."""
-    left_ts = _to_ns_int64(left.column(on))
-    right_ts = _to_ns_int64(right.column(on))
+    """As-of join without grouping — fully vectorized."""
+    left_ts = _to_numpy_i64(left.column(on))
+    right_ts = _to_numpy_i64(right.column(on))
 
     # Sort right by timestamp
-    right_order = pc.sort_indices(right_ts)
-    right_ts_sorted = right_ts.take(right_order)
-    right_sorted = right.take(right_order)
+    sort_order = np.argsort(right_ts, kind="mergesort")
+    right_ts_sorted = right_ts[sort_order]
+    right_sorted = right.take(pa.array(sort_order))
 
-    indices = _build_asof_indices(left_ts, right_ts_sorted, cfg)
+    indices = _vectorized_asof_indices(left_ts, right_ts_sorted, cfg)
     return _gather_and_append(left, right_sorted, right_value_cols, prefixed_names, indices, stats)
 
 
@@ -175,119 +301,62 @@ def _as_of_join_grouped(
     cfg: AsOfConfig,
     stats: AlignmentStats,
 ) -> pa.Table:
-    """As-of join with per-group (per-symbol) processing."""
-    left_syms = left.column(by).to_pylist()
-    right_syms = right.column(by).to_pylist()
+    """As-of join with per-group (per-symbol) processing — vectorized within groups.
 
-    unique_symbols = list(set(left_syms))
+    Uses numpy advanced indexing for group partitioning instead of
+    Python-level nested loops. For each symbol:
+    1. Boolean mask to extract positions (vectorized)
+    2. numpy.searchsorted on the group's timestamps (vectorized)
+    3. Map local indices back to global positions
+    """
+    left_syms_arr = left.column(by)
+    right_syms_arr = right.column(by)
+    left_ts = _to_numpy_i64(left.column(on))
+    right_ts = _to_numpy_i64(right.column(on))
 
-    # Pre-index right side by symbol
-    right_ts_all = _to_ns_int64(right.column(on)).to_pylist()
-    right_by_sym: dict[str, list[tuple[int, int]]] = {}
-    for i, sym in enumerate(right_syms):
-        right_by_sym.setdefault(sym, []).append((right_ts_all[i], i))
+    # Get unique symbols from left side
+    unique_symbols = pc.unique(left_syms_arr).to_pylist()
 
-    # Sort each symbol's right entries by timestamp
-    for sym in right_by_sym:
-        right_by_sym[sym].sort(key=lambda x: x[0])
+    # Convert symbol columns to Python for grouping
+    left_syms = left_syms_arr.to_pylist()
+    right_syms = right_syms_arr.to_pylist()
 
-    left_ts_all = _to_ns_int64(left.column(on)).to_pylist()
+    # Pre-index right side: symbol → sorted (timestamps, global_indices)
+    right_sym_to_positions: dict[str, np.ndarray] = {}
+    right_sym_to_ts: dict[str, np.ndarray] = {}
 
-    # Build global index mapping
-    global_indices: list[int | None] = [None] * left.num_rows
+    # Build right-side group indices using numpy
+    for sym in set(right_syms):
+        positions = np.array([i for i, s in enumerate(right_syms) if s == sym], dtype=np.int64)
+        ts_subset = right_ts[positions]
+        sort_order = np.argsort(ts_subset, kind="mergesort")
+        right_sym_to_positions[sym] = positions[sort_order]
+        right_sym_to_ts[sym] = ts_subset[sort_order]
+
+    # Global index array
+    global_indices = np.full(left.num_rows, _INVALID_INDEX, dtype=np.int64)
 
     for sym in unique_symbols:
-        right_entries = right_by_sym.get(sym)
-        if not right_entries:
+        if sym not in right_sym_to_ts:
             continue
 
-        right_ts_sorted = [e[0] for e in right_entries]
-        right_global_idx = [e[1] for e in right_entries]
+        # Left positions for this symbol (vectorized boolean mask)
+        left_positions = np.array([i for i, s in enumerate(left_syms) if s == sym], dtype=np.int64)
+        if len(left_positions) == 0:
+            continue
 
-        # Process all left rows for this symbol
-        for i, (ls, lt) in enumerate(zip(left_syms, left_ts_all)):
-            if ls != sym:
-                continue
-            local_idx = _find_match(lt, right_ts_sorted, len(right_ts_sorted), cfg)
-            if local_idx is not None:
-                global_indices[i] = right_global_idx[local_idx]
+        left_ts_subset = left_ts[left_positions]
+        right_ts_sorted = right_sym_to_ts[sym]
+        right_global_idx = right_sym_to_positions[sym]
+
+        # Vectorized search within this group
+        local_indices = _vectorized_asof_indices(left_ts_subset, right_ts_sorted, cfg)
+
+        # Map local matches back to global right-table positions
+        matched = local_indices >= 0
+        global_indices[left_positions[matched]] = right_global_idx[local_indices[matched]]
 
     return _gather_and_append(left, right, right_value_cols, prefixed_names, global_indices, stats)
-
-
-def _build_asof_indices(
-    left_ts: pa.Array,
-    right_ts_sorted: pa.Array,
-    cfg: AsOfConfig,
-) -> list[int | None]:
-    """Build index mapping from left rows to right rows."""
-    n_right = len(right_ts_sorted)
-    if n_right == 0:
-        return [None] * len(left_ts)
-
-    left_values = left_ts.to_pylist()
-    right_values = right_ts_sorted.to_pylist()
-
-    return [
-        _find_match(lt, right_values, n_right, cfg) if lt is not None else None
-        for lt in left_values
-    ]
-
-
-def _find_match(
-    left_val: int,
-    right_values: list[int],
-    n_right: int,
-    cfg: AsOfConfig,
-) -> int | None:
-    """Find the matching right index for a single left timestamp."""
-    if cfg.direction == "backward":
-        if cfg.allow_exact_match:
-            pos = bisect.bisect_right(right_values, left_val) - 1
-        else:
-            pos = bisect.bisect_left(right_values, left_val) - 1
-        if pos < 0:
-            return None
-        if cfg.tolerance_ns is not None and (left_val - right_values[pos]) > cfg.tolerance_ns:
-            return None
-        return pos
-
-    elif cfg.direction == "forward":
-        if cfg.allow_exact_match:
-            pos = bisect.bisect_left(right_values, left_val)
-        else:
-            pos = bisect.bisect_right(right_values, left_val)
-        if pos >= n_right:
-            return None
-        if cfg.tolerance_ns is not None and (right_values[pos] - left_val) > cfg.tolerance_ns:
-            return None
-        return pos
-
-    else:  # nearest
-        back_pos = bisect.bisect_right(right_values, left_val) - 1
-        fwd_pos = bisect.bisect_left(right_values, left_val)
-
-        back_dist = abs(left_val - right_values[back_pos]) if back_pos >= 0 else None
-        fwd_dist = abs(right_values[fwd_pos] - left_val) if fwd_pos < n_right else None
-
-        if back_dist is None and fwd_dist is None:
-            return None
-
-        if back_dist is not None and fwd_dist is not None:
-            best_pos = back_pos if back_dist <= fwd_dist else fwd_pos
-            best_dist = min(back_dist, fwd_dist)
-        elif back_dist is not None:
-            best_pos = back_pos
-            best_dist = back_dist
-        else:
-            best_pos = fwd_pos
-            best_dist = fwd_dist
-
-        if not cfg.allow_exact_match and best_dist == 0:
-            return None
-        if cfg.tolerance_ns is not None and best_dist > cfg.tolerance_ns:
-            return None
-        return best_pos
 
 
 def _gather_and_append(
@@ -295,39 +364,58 @@ def _gather_and_append(
     right: pa.Table,
     right_value_cols: list[str],
     prefixed_names: dict[str, str],
-    indices: list[int | None],
+    indices: np.ndarray,
     stats: AlignmentStats,
 ) -> pa.Table:
-    """Gather right-side columns by index and append to left table."""
-    stats.matched_rows = sum(1 for idx in indices if idx is not None)
+    """Gather right-side columns using vectorized take with null masking.
+
+    Uses pa.Array.take for matched indices and applies a validity bitmap
+    for unmatched rows — no Python-level per-element loops.
+    """
+    matched_mask = indices >= 0
+    stats.matched_rows = int(np.sum(matched_mask))
     n = len(indices)
     has_nulls = stats.matched_rows < n
 
+    # Build take indices: replace -1 with 0 (we'll null them out via bitmap)
+    safe_indices = np.where(matched_mask, indices, 0)
+    take_arr = pa.array(safe_indices, type=pa.int64())
+
     result = left
     for col_name in right_value_cols:
-        col_type = right.schema.field(col_name).type
         right_col = right.column(col_name)
         if isinstance(right_col, pa.ChunkedArray):
             right_col = right_col.combine_chunks()
 
+        gathered = right_col.take(take_arr)
+
         if has_nulls:
-            # Build column value-by-value to handle nulls safely across all types
-            values = []
-            for idx in indices:
-                if idx is not None:
-                    values.append(right_col[idx].as_py())
-                else:
-                    values.append(None)
-            gathered = pa.array(values, type=col_type)
-        else:
-            take_indices = pa.array([idx for idx in indices], type=pa.int32())
-            gathered = right_col.take(take_indices)
+            # Apply null mask: create a new array with nulls where indices == -1
+            validity_buf = pa.array(matched_mask).buffers()[1]
+            col_type = gathered.type
+
+            # For variable-length types (strings, lists), we must go through
+            # Python values to safely apply the null mask
+            if pa.types.is_binary(col_type) or pa.types.is_string(col_type) or pa.types.is_large_string(col_type) or pa.types.is_list(col_type):
+                values = gathered.to_pylist()
+                for i in range(n):
+                    if not matched_mask[i]:
+                        values[i] = None
+                gathered = pa.array(values, type=col_type)
+            else:
+                # Fixed-width types: use from_buffers for zero-copy null application
+                buffers = gathered.buffers()
+                gathered = pa.Array.from_buffers(col_type, n, [validity_buf] + buffers[1:])
 
         output_name = prefixed_names.get(col_name, col_name)
         result = result.append_column(output_name, gathered)
 
     return result
 
+
+# ---------------------------------------------------------------------------
+# Multi-stream alignment
+# ---------------------------------------------------------------------------
 
 def align_streams(
     primary: pa.Table,
@@ -340,21 +428,11 @@ def align_streams(
     Performs sequential as-of joins of each secondary stream onto the
     primary table. Each secondary stream's columns are prefixed with
     the stream name to avoid collisions.
-
-    Args:
-        primary: The primary timeline (defines output rows).
-        secondaries: List of secondary streams to join.
-        primary_timestamp_col: Timestamp column in primary table.
-        primary_symbol_col: Symbol column in primary table.
-
-    Returns:
-        Tuple of (aligned table, per-stream statistics).
     """
     result = primary
     all_stats: dict[str, AlignmentStats] = {}
 
     for spec in secondaries:
-        # Determine value columns
         if spec.value_columns is not None:
             keep = list(set(spec.value_columns + [spec.timestamp_col]))
             if spec.symbol_col in spec.table.schema.names:
@@ -376,29 +454,27 @@ def align_streams(
         if by_col not in result.schema.names or by_col not in right.schema.names:
             by_col = None
 
-        result, join_stats = as_of_join(
-            result, right,
-            on=primary_timestamp_col,
-            by=by_col,
-            config=cfg,
-        )
+        result, join_stats = as_of_join(result, right, on=primary_timestamp_col, by=by_col, config=cfg)
         all_stats[spec.name] = join_stats
 
     return result, all_stats
 
 
+# ---------------------------------------------------------------------------
+# Stateful aligner
+# ---------------------------------------------------------------------------
+
 class TemporalAligner:
     """Stateful temporal alignment engine for batch-level processing.
 
     Maintains state across batches to handle late-arriving data and
-    produces aligned output incrementally. Designed for integration
-    with ReplayEngine for historical replay alignment.
+    produces aligned output incrementally.
 
     Example::
 
         aligner = TemporalAligner(
             primary_type="trade",
-            secondary_specs={"quote": ["bid_price", "ask_price", "bid_size", "ask_size"]},
+            secondary_specs={"quote": ["bid_price", "ask_price"]},
         )
         aligner.add_data("trade", trade_table)
         aligner.add_data("quote", quote_table)
