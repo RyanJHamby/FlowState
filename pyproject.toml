@@ -5,21 +5,41 @@ build-backend = "hatchling.build"
 [project]
 name = "flowstate"
 dynamic = ["version"]
-description = "Production-grade market data ingestion, normalization, and storage for GPU-accelerated ML training"
+description = "Temporal alignment engine and GPU-accelerated data feeding for quantitative ML"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
 authors = [{ name = "FlowState Contributors" }]
+keywords = [
+    "quantitative-finance",
+    "temporal-alignment",
+    "as-of-join",
+    "market-data",
+    "gpu-acceleration",
+    "pyarrow",
+    "parquet",
+    "feature-engineering",
+    "ml-pipeline",
+    "point-in-time",
+    "trading",
+    "hft",
+    "gpudirect",
+    "dataloader",
+    "time-series",
+]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Science/Research",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Office/Business :: Financial :: Investment",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database :: Database Engines/Servers",
+    "Typing :: Typed",
 ]
 dependencies = [
     "pyarrow>=14.0",
@@ -55,9 +75,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/flowstate-io/flowstate"
-Repository = "https://github.com/flowstate-io/flowstate"
-Issues = "https://github.com/flowstate-io/flowstate/issues"
+Homepage = "https://github.com/RyanJHamby/flowstate"
+Repository = "https://github.com/RyanJHamby/flowstate"
+Issues = "https://github.com/RyanJHamby/flowstate/issues"
 
 [tool.hatch.version]
 path = "src/flowstate/_version.py"

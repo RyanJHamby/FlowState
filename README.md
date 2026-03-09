@@ -1,94 +1,75 @@
-# FlowState
+<p align="center">
+  <strong>FlowState</strong><br>
+  <em>Temporal alignment and GPU-accelerated data feeding for quantitative ML</em>
+</p>
 
-Temporal alignment engine and GPU-accelerated data feeding pipeline for quantitative finance ML. Designed for production use at firms handling 100TB+ of heterogeneous market data.
+<p align="center">
+  <a href="https://github.com/RyanJHamby/flowstate/actions/workflows/ci.yml"><img src="https://github.com/RyanJHamby/flowstate/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python"></a>
+  <a href="https://pypi.org/project/flowstate/"><img src="https://img.shields.io/pypi/v/flowstate.svg" alt="PyPI"></a>
+</p>
 
-[![CI](https://github.com/flowstate-io/flowstate/actions/workflows/ci.yml/badge.svg)](https://github.com/flowstate-io/flowstate/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+---
 
-## Why FlowState
+FlowState is a Python library for building point-in-time correct feature pipelines over market data. It joins heterogeneous streams — trades, quotes, bars — into aligned tensors at nanosecond precision, with native GPU data feeding for ML training workloads.
 
-Training ML models on market data requires joining trades, quotes, and bars into aligned feature tensors — without look-ahead bias. Existing tools either don't handle nanosecond-precision temporal joins at scale, or force you into slow pandas workflows that don't integrate with GPU training pipelines.
+Built for production environments where look-ahead bias is a showstopper and pandas doesn't scale.
 
-FlowState solves this with:
+## The Problem
 
-1. **Point-in-time correct as-of joins** — No look-ahead bias. Each output row contains only data observable at that timestamp.
-2. **GPU-aware data feeding** — Pinned memory, double-buffered prefetch, GPUDirect Storage bypass.
-3. **Partition-pruned replay** — Hive partition pruning → row-group statistics pushdown → k-way merge for global time ordering. Never loads data you don't need.
+Quantitative ML models consume multiple data streams that arrive at different frequencies and with different latencies. Aligning them correctly means:
+
+- A trade at `t` should see the most recent quote **as of `t`**, not a future one
+- Stale data beyond a tolerance window should be nulled, not silently forward-filled
+- Alignment must be per-symbol — AAPL quotes should never bleed into MSFT rows
+- The result needs to land on a GPU without copying through Python
+
+Most teams solve this with ad-hoc pandas merges, which are slow, error-prone, and disconnected from the training loop. FlowState handles it end-to-end.
 
 ## Architecture
 
 ```mermaid
-graph LR
-    subgraph Storage["Storage Layer"]
-        PART[Hive Partitioner<br/>xxhash bucketing]
-        PQ[Parquet Writer<br/>zstd compression]
-        CACHE[NVMe Cache<br/>LRU tier]
-        OBJ[Object Store<br/>S3/GCS/Azure]
-        PART --> PQ --> CACHE --> OBJ
+graph TD
+    subgraph Storage
+        A[Hive-Partitioned Parquet] -->|xxhash bucketing| B[NVMe Cache]
+        B --> C[S3 / GCS / Azure]
     end
 
-    subgraph Prism["Prism (Query + Alignment)"]
-        REPLAY[Replay Engine<br/>partition pruning<br/>row-group pushdown<br/>k-way merge]
-        ALIGN[Temporal Aligner<br/>as-of joins<br/>point-in-time correct]
-        GPU[GPUDirect Reader<br/>CPU fallback]
-        DL[DataLoaders<br/>PyTorch / JAX]
-        REPLAY --> ALIGN
-        GPU --> REPLAY
-        ALIGN --> DL
+    subgraph Replay
+        D[Partition Pruning] --> E[Row-Group Pushdown]
+        E --> F[K-Way Merge]
     end
 
-    subgraph Schema["Schema + Validation"]
-        TYPES[Arrow-native types<br/>ns timestamps]
-        NORM[Normalizer<br/>A/B arbitration]
-        VAL[Validator<br/>gap detection]
+    subgraph Alignment
+        G[As-Of Join Engine] --> H[Multi-Stream Aligner]
+        H --> I[Point-in-Time Guarantees]
     end
 
-    subgraph Ops["Operations"]
-        MET[P99 Latency<br/>Throughput]
-        HEALTH[Health Checks]
+    subgraph GPU Pipeline
+        J[GPUDirect Storage] --> K[Pinned Memory Pool]
+        K --> L[Double-Buffered Prefetch]
+        L --> M[PyTorch / JAX DataLoader]
     end
 
-    OBJ --> GPU
-    CACHE --> GPU
-    TYPES --> NORM --> VAL
-    MET -.-> Storage & Prism
+    C --> D
+    B --> J
+    F --> G
+    I --> L
 ```
 
-## Core Capabilities
+## Key Features
 
-### Temporal Alignment
-
-The alignment engine performs point-in-time correct as-of joins across heterogeneous data streams. For each row in the primary timeline (e.g., trades), it finds the most recent observation from each secondary stream (e.g., quotes, bars) that was available at that timestamp.
-
-- **Backward joins** (default) — Forward-fill, no look-ahead bias
-- **Forward joins** — For label generation (e.g., future mid-price)
-- **Nearest joins** — Closest observation in either direction
-- **Configurable tolerance** — Reject stale data beyond a threshold
-- **Per-symbol grouping** — Quotes from AAPL never leak into MSFT
-- **Multi-stream** — Align any number of secondary streams in one call
-
-### Replay Engine
-
-Production-grade historical data iteration with three levels of pruning:
-
-1. **Hive partition pruning** — Skip entire directories by data type and date
-2. **Row-group statistics** — Skip Parquet row groups whose timestamp range doesn't overlap the query
-3. **Column projection** — Read only the columns you need
-
-K-way merge across files ensures globally time-ordered output without loading everything into memory.
-
-### Storage
-
-- Deterministic xxhash-based Hive partitioning prevents hot-symbol skew
-- Parquet with zstd compression for high compression ratios
-- NVMe LRU cache tier with fsspec-based cloud backends (S3/GCS/Azure)
-
-### GPU Integration
-
-- GPUDirect Storage for NVMe→GPU bypass (kvikio) with automatic CPU fallback
-- PyTorch `IterableDataset` and JAX iterator adapters
-- All GPU features degrade gracefully — runs on CPU in CI/dev
+| Capability | Description |
+|---|---|
+| **As-of joins** | Backward, forward, and nearest temporal joins with configurable tolerance and per-symbol grouping |
+| **Multi-stream alignment** | Join any number of secondary streams onto a primary timeline in a single call |
+| **No look-ahead bias** | Backward joins are the default — each row sees only data available at its timestamp |
+| **Three-level pruning** | Hive partition elimination, Parquet row-group statistics, column projection |
+| **K-way merge** | Globally time-ordered iteration across arbitrarily many files without full materialization |
+| **GPU data path** | GPUDirect Storage (kvikio) with automatic CPU fallback for dev/CI |
+| **ML DataLoaders** | Native PyTorch `IterableDataset` and JAX iterator adapters |
+| **Cloud storage** | fsspec backends for S3, GCS, and Azure with NVMe LRU caching |
 
 ## Installation
 
@@ -96,18 +77,17 @@ K-way merge across files ensures globally time-ordered output without loading ev
 pip install flowstate
 ```
 
-Optional extras:
-
 ```bash
-pip install flowstate[gpu]     # kvikio + cupy for GPUDirect
-pip install flowstate[aws]     # S3 support
-pip install flowstate[gcs]     # Google Cloud Storage
-pip install flowstate[dev]     # Development tools
+# Optional extras
+pip install flowstate[gpu]     # kvikio + cupy for GPUDirect Storage
+pip install flowstate[aws]     # S3 via s3fs
+pip install flowstate[gcs]     # Google Cloud Storage via gcsfs
+pip install flowstate[dev]     # ruff, mypy, pytest, coverage
 ```
 
-## Quickstart
+## Usage
 
-### Temporal Alignment
+### Align trades with quotes (no look-ahead bias)
 
 ```python
 from flowstate.prism.alignment import TemporalAligner
@@ -117,31 +97,31 @@ aligner = TemporalAligner(
     secondary_specs={
         "quote": ["bid_price", "ask_price", "bid_size", "ask_size"],
     },
-    tolerance_ns=5_000_000_000,  # 5 second staleness limit
+    tolerance_ns=5_000_000_000,  # reject quotes older than 5s
 )
 
-aligner.add_data("trade", trade_table)   # pa.Table with trades
-aligner.add_data("quote", quote_table)   # pa.Table with quotes
+aligner.add_data("trade", trade_table)
+aligner.add_data("quote", quote_table)
 
 aligned, stats = aligner.flush()
-# aligned: trades with quote_bid_price, quote_ask_price, etc. joined as-of
-# No look-ahead bias — each row sees only data available at its timestamp
+# aligned is a pa.Table: trades + quote_bid_price, quote_ask_price, ...
+# Every row is point-in-time correct
 ```
 
-### As-Of Join (Low-Level)
+### Low-level as-of join
 
 ```python
 from flowstate.prism.alignment import as_of_join, AsOfConfig
 
-# Backward join: each trade gets the most recent quote
+# Each trade gets the most recent quote as of its timestamp
 result, stats = as_of_join(trades, quotes, on="timestamp", by="symbol")
 
-# Forward join for label generation
+# Forward join for label generation (e.g., mid-price 1 minute ahead)
 cfg = AsOfConfig(direction="forward", tolerance_ns=60_000_000_000)
-result, stats = as_of_join(trades, future_prices, config=cfg)
+labeled, stats = as_of_join(trades, future_mid, config=cfg)
 ```
 
-### Historical Replay
+### Replay historical data with pruning
 
 ```python
 from flowstate import ReplaySession
@@ -151,55 +131,85 @@ session = (
     .symbols(["AAPL", "MSFT"])
     .data_types(["trade"])
     .time_range(start_ns=1705320000_000_000_000)
-    .batch_size(65536)
+    .batch_size(65_536)
 )
 
 for batch in session:
     prices = batch.column("price").to_numpy()
 ```
 
-### ML Training Pipeline
+### Feed a PyTorch training loop
 
 ```python
 from flowstate import ReplaySession
 
 dataset = (
     ReplaySession("/data/market")
-    .symbols(["AAPL", "MSFT"])
     .data_types(["trade"])
     .to_dataset(numeric_columns=["price", "size"])
 )
 
 for batch in dataset:
-    features = batch["price"]  # numpy array, GPU-ready
+    features = batch["price"]  # numpy array, ready for torch.from_numpy()
 ```
 
-## Performance
+## Performance Characteristics
 
-| Component | Metric | Target |
-|-----------|--------|--------|
-| As-of Join | Throughput | >1M rows/sec per stream |
-| Replay Engine | Read | >5GB/sec (NVMe) |
-| Partition Pruning | Speedup | 10-100x vs. full scan |
-| GPUDirect | Transfer | Line-rate NVMe→GPU |
-| Ring Buffer | Throughput | >10M msg/sec (SPSC) |
+| Component | Metric | Notes |
+|---|---|---|
+| As-of join | O(*n* log *m*) per stream | Bisect-based matching, pure Arrow |
+| Replay | Three-level pruning | 10-100x speedup over full scan on partitioned data |
+| GPUDirect | NVMe line rate | kvikio bypass, falls back to `pq.read_table` on CPU |
+| Ring buffer | >10M msg/sec | SPSC, shared-memory, cache-line padded |
+| Storage | zstd-compressed Parquet | Deterministic Hive partitioning via xxhash |
+
+## Project Structure
+
+```
+src/flowstate/
+├── prism/
+│   ├── alignment.py      # Temporal alignment engine (as-of joins)
+│   ├── replay.py          # Partition-pruned historical replay
+│   ├── gpu_direct.py      # GPUDirect Storage + CPU fallback
+│   ├── dataloader.py      # PyTorch / JAX adapters
+│   └── nccl.py            # Multi-GPU communication
+├── schema/
+│   ├── types.py           # Arrow-native trade/quote/bar schemas
+│   ├── registry.py        # Versioned schema evolution
+│   ├── normalization.py   # Zero-copy normalizer, A/B arbitration
+│   └── validation.py      # Schema enforcement, sequence gap detection
+├── storage/
+│   ├── partitioning.py    # xxhash Hive partitioning
+│   ├── writer.py          # Partitioned Parquet writer (zstd)
+│   ├── cache.py           # NVMe LRU cache
+│   └── object_store.py    # fsspec cloud backends
+├── ops/
+│   ├── metrics.py         # P99 latency, throughput counters
+│   ├── alignment.py       # Cache-line aligned allocators
+│   └── health.py          # Operational health checks
+└── pipeline.py            # Pipeline builder + ReplaySession API
+```
 
 ## Development
 
 ```bash
-git clone https://github.com/flowstate-io/flowstate.git
+git clone https://github.com/RyanJHamby/flowstate.git
 cd flowstate
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 python -m pytest tests/ -v
 ```
 
+282 tests, ~1 second on a MacBook.
+
 ## Roadmap
 
-- [ ] GPU-aware data feeding — pinned memory allocator, double-buffered prefetch
-- [ ] Distributed replay — multi-GPU sharded iteration with NCCL coordination
-- [ ] Streaming alignment — incremental as-of joins on live data with watermarks
-- [ ] Temporal feature store — materialized aligned views with cache invalidation
+- [ ] **Pinned memory allocator** — CUDA host-pinned buffer pool with CPU fallback
+- [ ] **Double-buffered prefetch** — Background thread fills buffer *N+1* while GPU consumes buffer *N*
+- [ ] **End-to-end GPU pipeline** — Replay, align, prefetch, and deliver tensors in one config
+- [ ] **Distributed replay** — File-level sharding across ranks with NCCL barrier sync
+- [ ] **Streaming alignment** — Incremental as-of joins on live data with watermark-based emission
+- [ ] **Temporal feature store** — Materialized aligned views with cache invalidation and Arrow Flight serving
 
 ## License
 
