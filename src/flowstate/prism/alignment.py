@@ -291,6 +291,60 @@ def _as_of_join_ungrouped(
     return _gather_and_append(left, right_sorted, right_value_cols, prefixed_names, indices, stats)
 
 
+def _group_by_column(col: pa.Array) -> tuple[np.ndarray, np.ndarray]:
+    """Encode a string column to integer codes using numpy.
+
+    Returns (unique_labels, codes) where codes[i] is the group index for row i.
+    Uses PyArrow dictionary encoding which is O(n) and avoids Python-level loops.
+    """
+    combined = col.combine_chunks() if hasattr(col, 'combine_chunks') else col
+    encoded = combined.dictionary_encode()
+    codes = encoded.indices.to_numpy(zero_copy_only=False).astype(np.int64)
+    labels = encoded.dictionary.to_pylist()
+    return labels, codes
+
+
+def _partition_indices_by_code(codes: np.ndarray, n_groups: int) -> list[np.ndarray]:
+    """Partition row indices by group code in a single argsort pass.
+
+    Returns a list where result[code] = sorted array of row indices for that group.
+    O(n log n) total, zero Python-level per-element work.
+    """
+    order = np.argsort(codes, kind="mergesort")
+    sorted_codes = codes[order]
+    # Find group boundaries
+    boundaries = np.searchsorted(sorted_codes, np.arange(n_groups))
+    end_boundaries = np.searchsorted(sorted_codes, np.arange(n_groups), side="right")
+    return [order[boundaries[g]:end_boundaries[g]] for g in range(n_groups)]
+
+
+def _partition_sorted_by_ts(
+    codes: np.ndarray, ts: np.ndarray, n_groups: int
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Partition by group code, with each partition pre-sorted by timestamp.
+
+    Uses a radix-style approach: stable-sort by timestamp first (which data
+    often already is), then stable-sort by code. Since both sorts are stable,
+    within each code partition rows remain in timestamp order.
+
+    For pre-sorted timestamp data (common case), the first sort is nearly free.
+    """
+    # If timestamps are already sorted (very common for time-series), argsort is ~free
+    ts_order = np.argsort(ts, kind="mergesort")
+    # Stable sort by code preserves timestamp ordering within groups
+    code_order = np.argsort(codes[ts_order], kind="mergesort")
+    order = ts_order[code_order]
+
+    sorted_codes = codes[order]
+    boundaries = np.searchsorted(sorted_codes, np.arange(n_groups))
+    end_boundaries = np.searchsorted(sorted_codes, np.arange(n_groups), side="right")
+    result = []
+    for g in range(n_groups):
+        group_order = order[boundaries[g]:end_boundaries[g]]
+        result.append((group_order, ts[group_order]))
+    return result
+
+
 def _as_of_join_grouped(
     left: pa.Table,
     right: pa.Table,
@@ -301,60 +355,51 @@ def _as_of_join_grouped(
     cfg: AsOfConfig,
     stats: AlignmentStats,
 ) -> pa.Table:
-    """As-of join with per-group (per-symbol) processing — vectorized within groups.
+    """As-of join with per-group (per-symbol) processing — fully vectorized.
 
-    Uses numpy advanced indexing for group partitioning instead of
-    Python-level nested loops. For each symbol:
-    1. Boolean mask to extract positions (vectorized)
-    2. numpy.searchsorted on the group's timestamps (vectorized)
-    3. Map local indices back to global positions
+    Grouping uses dictionary encoding + argsort partitioning (single O(n log n)
+    pass) instead of Python list comprehensions. Within each group,
+    numpy.searchsorted handles the temporal matching.
     """
-    left_syms_arr = left.column(by)
-    right_syms_arr = right.column(by)
     left_ts = _to_numpy_i64(left.column(on))
     right_ts = _to_numpy_i64(right.column(on))
 
-    # Get unique symbols from left side
-    unique_symbols = pc.unique(left_syms_arr).to_pylist()
+    # Dictionary-encode both sides — O(n) each, no Python loops
+    left_labels, left_codes = _group_by_column(left.column(by))
+    right_labels, right_codes = _group_by_column(right.column(by))
 
-    # Convert symbol columns to Python for grouping
-    left_syms = left_syms_arr.to_pylist()
-    right_syms = right_syms_arr.to_pylist()
+    # Build label → code mapping for right side
+    right_label_to_code = {label: code for code, label in enumerate(right_labels)}
 
-    # Pre-index right side: symbol → sorted (timestamps, global_indices)
-    right_sym_to_positions: dict[str, np.ndarray] = {}
-    right_sym_to_ts: dict[str, np.ndarray] = {}
-
-    # Build right-side group indices using numpy
-    for sym in set(right_syms):
-        positions = np.array([i for i, s in enumerate(right_syms) if s == sym], dtype=np.int64)
-        ts_subset = right_ts[positions]
-        sort_order = np.argsort(ts_subset, kind="mergesort")
-        right_sym_to_positions[sym] = positions[sort_order]
-        right_sym_to_ts[sym] = ts_subset[sort_order]
+    # Partition row indices by group — single pass each
+    # Left side: just needs grouping (will index into left_ts later)
+    left_groups = _partition_indices_by_code(left_codes, len(left_labels))
+    # Right side: partition AND sort by timestamp in one lexsort
+    right_partitions = _partition_sorted_by_ts(right_codes, right_ts, len(right_labels))
 
     # Global index array
     global_indices = np.full(left.num_rows, _INVALID_INDEX, dtype=np.int64)
 
-    for sym in unique_symbols:
-        if sym not in right_sym_to_ts:
+    for lcode, label in enumerate(left_labels):
+        rcode = right_label_to_code.get(label)
+        if rcode is None:
             continue
 
-        # Left positions for this symbol (vectorized boolean mask)
-        left_positions = np.array([i for i, s in enumerate(left_syms) if s == sym], dtype=np.int64)
+        right_positions, right_ts_sorted = right_partitions[rcode]
+        if len(right_positions) == 0:
+            continue
+
+        left_positions = left_groups[lcode]
         if len(left_positions) == 0:
             continue
-
         left_ts_subset = left_ts[left_positions]
-        right_ts_sorted = right_sym_to_ts[sym]
-        right_global_idx = right_sym_to_positions[sym]
 
         # Vectorized search within this group
         local_indices = _vectorized_asof_indices(left_ts_subset, right_ts_sorted, cfg)
 
         # Map local matches back to global right-table positions
         matched = local_indices >= 0
-        global_indices[left_positions[matched]] = right_global_idx[local_indices[matched]]
+        global_indices[left_positions[matched]] = right_positions[local_indices[matched]]
 
     return _gather_and_append(left, right, right_value_cols, prefixed_names, global_indices, stats)
 
