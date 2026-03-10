@@ -18,7 +18,7 @@ from flowstate.schema.types import (
 
 class TestTimestampType:
     def test_nanosecond_precision(self):
-        assert TIMESTAMP_NS == pa.timestamp("ns", tz="UTC")
+        assert pa.timestamp("ns", tz="UTC") == TIMESTAMP_NS
 
     def test_utc_timezone(self):
         assert TIMESTAMP_NS.tz == "UTC"

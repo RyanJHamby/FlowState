@@ -13,8 +13,8 @@ from __future__ import annotations
 import logging
 import queue
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any, Callable, Iterator
 
 import numpy as np
 import pyarrow as pa
@@ -236,7 +236,9 @@ class PrefetchPipeline:
             # Auto-detect numeric columns
             columns_to_pin = [
                 field.name for field in batch.schema
-                if pa.types.is_floating(field.type) or pa.types.is_integer(field.type) or pa.types.is_timestamp(field.type)
+                if pa.types.is_floating(field.type)
+                or pa.types.is_integer(field.type)
+                or pa.types.is_timestamp(field.type)
             ]
 
         for name in columns_to_pin:

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 import pyarrow as pa
 
@@ -27,7 +28,6 @@ class ArrowBatchConverter:
     @staticmethod
     def to_numpy(batch: pa.RecordBatch, columns: list[str] | None = None) -> dict[str, Any]:
         """Convert selected columns to numpy arrays."""
-        import numpy as np
 
         result = {}
         cols = columns or batch.schema.names

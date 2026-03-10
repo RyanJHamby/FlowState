@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 
 import pyarrow as pa
 
 
-class CompatibilityMode(str, Enum):
+class CompatibilityMode(StrEnum):
     """Schema evolution compatibility modes."""
 
     NONE = "none"
@@ -142,7 +142,7 @@ class SchemaRegistry:
             except KeyError:
                 raise CompatibilityError(
                     f"Backward incompatible: field '{old_field.name}' removed"
-                )
+                ) from None
             if new_field.type != old_field.type:
                 raise CompatibilityError(
                     f"Backward incompatible: field '{old_field.name}' type changed "

@@ -13,7 +13,7 @@ import pytest
 # Skip entire module if Rust extension not built
 flowstate_core = pytest.importorskip("flowstate_core")
 
-from flowstate.prism.alignment import AsOfConfig, as_of_join
+from flowstate.prism.alignment import AsOfConfig, as_of_join  # noqa: E402
 
 TS = pa.timestamp("ns", tz="UTC")
 
@@ -302,7 +302,9 @@ class TestRustPythonParity:
         # Match counts should be identical
         py_matched = sum(1 for v in py_result.column("bid").to_pylist() if v is not None)
         rust_matched = sum(1 for v in rust_result.column("bid").to_pylist() if v is not None)
-        assert py_matched == rust_matched, f"Match count differs: Python={py_matched}, Rust={rust_matched}"
+        assert py_matched == rust_matched, (
+            f"Match count differs: Python={py_matched}, Rust={rust_matched}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -652,7 +654,8 @@ class TestAlignStreams:
 
     def test_python_rust_parity(self):
         """Rust multi-stream alignment matches Python sequential alignment."""
-        from flowstate.prism.alignment import AlignmentSpec, align_streams as py_align
+        from flowstate.prism.alignment import AlignmentSpec
+        from flowstate.prism.alignment import align_streams as py_align
 
         primary = pa.table({
             "timestamp": pa.array([10, 20, 30, 40, 50], type=pa.int64()),

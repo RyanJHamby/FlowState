@@ -8,7 +8,7 @@ from typing import Any
 
 import pyarrow as pa
 
-from flowstate.schema.types import TIMESTAMP_NS, MarketDataType, get_schema
+from flowstate.schema.types import MarketDataType, get_schema
 
 
 @dataclass
@@ -75,14 +75,13 @@ class Normalizer:
             # Check explicit mappings
             mapped = False
             for mapping in self._profile.field_mappings:
-                if mapping.target == target_field:
-                    if mapping.source in raw:
-                        value = raw[mapping.source]
-                        if mapping.transform is not None:
-                            value = mapping.transform(value)
-                        result[target_field] = value
-                        mapped = True
-                        break
+                if mapping.target == target_field and mapping.source in raw:
+                    value = raw[mapping.source]
+                    if mapping.transform is not None:
+                        value = mapping.transform(value)
+                    result[target_field] = value
+                    mapped = True
+                    break
 
             if not mapped:
                 # Try direct name match
@@ -179,9 +178,8 @@ class ABLineArbiter:
         key = self._dedup_key(record)
         ts = record.get("exchange_timestamp") or record.get("timestamp", 0)
 
-        if key in self._seen:
-            if abs(ts - self._seen[key]) <= self._dedup_window_ns:
-                return None
+        if key in self._seen and abs(ts - self._seen[key]) <= self._dedup_window_ns:
+            return None
 
         self._seen[key] = ts
         return record

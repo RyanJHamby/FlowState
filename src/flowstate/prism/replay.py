@@ -13,10 +13,11 @@ from __future__ import annotations
 import heapq
 import logging
 import re
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -54,7 +55,7 @@ class TimeRange:
         try:
             day_start = int(
                 datetime.strptime(date_str, "%Y-%m-%d")
-                .replace(tzinfo=timezone.utc)
+                .replace(tzinfo=UTC)
                 .timestamp()
                 * 1e9
             )
@@ -64,9 +65,7 @@ class TimeRange:
 
         if self.start_ns is not None and day_end <= self.start_ns:
             return False
-        if self.end_ns is not None and day_start >= self.end_ns:
-            return False
-        return True
+        return not (self.end_ns is not None and day_start >= self.end_ns)
 
 
 @dataclass(frozen=True)
@@ -330,7 +329,10 @@ class ReplayEngine:
         if (
             replay_filter is None
             or replay_filter.time_range is None
-            or (replay_filter.time_range.start_ns is None and replay_filter.time_range.end_ns is None)
+            or (
+                replay_filter.time_range.start_ns is None
+                and replay_filter.time_range.end_ns is None
+            )
         ):
             return list(range(num_rg))
 
@@ -432,7 +434,10 @@ class ReplayEngine:
         has_time_filter = (
             replay_filter is not None
             and replay_filter.time_range is not None
-            and (replay_filter.time_range.start_ns is not None or replay_filter.time_range.end_ns is not None)
+            and (
+                replay_filter.time_range.start_ns is not None
+                or replay_filter.time_range.end_ns is not None
+            )
         )
 
         for f in files:

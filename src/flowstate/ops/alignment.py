@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import mmap
 from typing import Final
@@ -80,7 +81,5 @@ class AlignedBuffer:
         self.close()
 
     def __del__(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._mmap.close()
-        except Exception:
-            pass

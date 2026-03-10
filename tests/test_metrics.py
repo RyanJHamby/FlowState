@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import threading
 
+import pytest
+
 from flowstate.ops.metrics import LatencyTracker, MetricsRegistry, ThroughputCounter
 
 
@@ -126,6 +128,3 @@ class TestMetricsRegistry:
         assert len(snap["latency"]) == 1
         assert len(snap["throughput"]) == 1
         assert snap["latency"][0]["name"] == "ingest"
-
-
-import pytest

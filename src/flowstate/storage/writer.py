@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -119,7 +118,7 @@ class PartitionedParquetWriter:
 
         # Group indices by partition path
         partition_indices: dict[str, list[int]] = {}
-        for i, (sym, ts_val) in enumerate(zip(symbols, timestamps)):
+        for i, (sym, ts_val) in enumerate(zip(symbols, timestamps, strict=False)):
             if ts_val is None:
                 continue
             key = self._scheme.partition_key(sym, ts_val, data_type)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import shutil
 import threading
@@ -134,10 +135,8 @@ class LRUCache:
         if path.exists():
             path.unlink()
             # Clean up empty parent directories
-            try:
+            with contextlib.suppress(OSError):
                 path.parent.rmdir()
-            except OSError:
-                pass
         self._stats.current_size_bytes -= size
         self._stats.evictions += 1
         self._stats.file_count = len(self._entries)

@@ -6,7 +6,6 @@ import uuid
 
 import pytest
 
-from flowstate.firehose.client import ClientConfig, ConnectionState
 from flowstate.firehose.ring_buffer import RingBuffer
 from flowstate.ops.health import HealthChecker, HealthStatus
 from flowstate.ops.metrics import MetricsRegistry

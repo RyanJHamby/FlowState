@@ -17,15 +17,12 @@ import pyarrow.parquet as pq
 import pytest
 
 from flowstate.prism.replay import (
-    PartitionInfo,
     ReplayConfig,
     ReplayEngine,
     ReplayFilter,
-    ReplayStats,
     TimeRange,
     _parse_partition,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers

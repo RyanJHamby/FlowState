@@ -5,14 +5,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from enum import Enum
-from typing import Any, AsyncIterator
+from enum import StrEnum
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-class ConnectionState(str, Enum):
+class ConnectionState(StrEnum):
     DISCONNECTED = "disconnected"
     CONNECTING = "connecting"
     CONNECTED = "connected"
@@ -125,7 +126,7 @@ class MarketDataClient(ABC):
             try:
                 msg = await asyncio.wait_for(self._message_queue.get(), timeout=1.0)
                 yield msg
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 continue
 
     async def _receive_loop(self) -> None:
@@ -160,15 +161,18 @@ class MarketDataClient(ABC):
 
     async def _reconnect(self) -> None:
         """Reconnect with exponential backoff."""
-        if self._config.max_reconnect_attempts > 0:
-            if self._reconnect_attempts >= self._config.max_reconnect_attempts:
-                logger.error("Max reconnect attempts reached")
-                self._running = False
-                return
+        if (
+            self._config.max_reconnect_attempts > 0
+            and self._reconnect_attempts >= self._config.max_reconnect_attempts
+        ):
+            logger.error("Max reconnect attempts reached")
+            self._running = False
+            return
 
         self._reconnect_attempts += 1
         delay = min(
-            self._config.reconnect_delay * (self._config.reconnect_backoff ** (self._reconnect_attempts - 1)),
+            self._config.reconnect_delay
+            * (self._config.reconnect_backoff ** (self._reconnect_attempts - 1)),
             self._config.max_reconnect_delay,
         )
         logger.info(f"Reconnecting in {delay:.1f}s (attempt {self._reconnect_attempts})")

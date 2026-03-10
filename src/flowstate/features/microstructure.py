@@ -20,11 +20,9 @@ Mathematical references cited inline.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Literal
+from dataclasses import dataclass
 
 import numpy as np
-
 
 # ---------------------------------------------------------------------------
 # EWMA — Exponentially Weighted Moving Average
@@ -230,7 +228,10 @@ class SlidingWelford:
             x_old = self._buffer[self._pos]
             old_mean = self._mean
             self._mean += (x - x_old) / n
-            self._m2 += (x - self._mean) * (x - old_mean) - (x_old - old_mean) * (x_old - self._mean)
+            self._m2 += (
+                (x - self._mean) * (x - old_mean)
+                - (x_old - old_mean) * (x_old - self._mean)
+            )
             # Clamp to prevent floating-point drift below zero
             if self._m2 < 0:
                 self._m2 = 0.0
@@ -258,7 +259,8 @@ class YangZhangVolatility:
     Combines close-to-open, open-to-close, and Rogers-Satchell components:
 
     .. math::
-        \sigma^2_{\text{YZ}} = \sigma^2_{co} + k \cdot \sigma^2_{oc} + (1 - k) \cdot \sigma^2_{\text{RS}}
+        \sigma^2_{\text{YZ}} = \sigma^2_{co} + k \cdot \sigma^2_{oc}
+        + (1 - k) \cdot \sigma^2_{\text{RS}}
 
     where:
 
@@ -326,8 +328,8 @@ class YangZhangVolatility:
         sigma_rs_sq = np.mean(log_hc * log_ho + log_lc * log_lo)
 
         # Optimal weighting
-        T = len(log_co)
-        k = 0.34 / (1.34 + T / (T - 2)) if T > 2 else 0.34
+        n_periods = len(log_co)
+        k = 0.34 / (1.34 + n_periods / (n_periods - 2)) if n_periods > 2 else 0.34
 
         sigma_yz_sq = sigma_co_sq + k * sigma_oc_sq + (1 - k) * sigma_rs_sq
         return math.sqrt(max(sigma_yz_sq, 0.0))
@@ -471,12 +473,12 @@ class KyleLambda:
         y = price_change
 
         # RLS update
-        Px = self._P @ x
-        denom = self._delta + x @ Px
-        K = Px / denom  # Kalman gain
+        p_x = self._P @ x
+        denom = self._delta + x @ p_x
+        gain = p_x / denom  # Kalman gain
         error = y - x @ self._theta
-        self._theta = self._theta + K * error
-        self._P = (self._P - np.outer(K, x @ self._P)) / self._delta
+        self._theta = self._theta + gain * error
+        self._P = (self._P - np.outer(gain, x @ self._P)) / self._delta
 
     def reset(self) -> None:
         self._count = 0

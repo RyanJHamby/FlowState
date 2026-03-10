@@ -6,7 +6,7 @@ import pyarrow as pa
 import pytest
 
 from flowstate.schema.types import TRADE_SCHEMA
-from flowstate.schema.validation import SchemaValidator, SequenceTracker, ValidationResult
+from flowstate.schema.validation import SchemaValidator, SequenceTracker
 
 
 @pytest.fixture

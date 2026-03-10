@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-import pytest
 
 from flowstate.schema.types import TRADE_SCHEMA
 from flowstate.storage.writer import PartitionedParquetWriter, WriterConfig

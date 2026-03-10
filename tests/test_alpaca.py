@@ -21,7 +21,11 @@ def alpaca_client() -> AlpacaClient:
 class TestAlpacaParsing:
     @pytest.mark.asyncio
     async def test_parse_trade(self, alpaca_client: AlpacaClient):
-        raw = b'[{"T":"t","S":"AAPL","p":185.5,"s":100,"t":"2024-01-01T10:00:00Z","x":"V","c":["@"],"i":12345,"z":"C"}]'
+        raw = (
+            b'[{"T":"t","S":"AAPL","p":185.5,"s":100,'
+            b'"t":"2024-01-01T10:00:00Z","x":"V","c":["@"],'
+            b'"i":12345,"z":"C"}]'
+        )
         results = await alpaca_client._parse_message(raw)
         assert len(results) == 1
         trade = results[0]
@@ -32,7 +36,11 @@ class TestAlpacaParsing:
 
     @pytest.mark.asyncio
     async def test_parse_quote(self, alpaca_client: AlpacaClient):
-        raw = b'[{"T":"q","S":"AAPL","bp":185.4,"bs":200,"ap":185.6,"as":300,"t":"2024-01-01T10:00:00Z","bx":"V","ax":"N"}]'
+        raw = (
+            b'[{"T":"q","S":"AAPL","bp":185.4,"bs":200,'
+            b'"ap":185.6,"as":300,'
+            b'"t":"2024-01-01T10:00:00Z","bx":"V","ax":"N"}]'
+        )
         results = await alpaca_client._parse_message(raw)
         assert len(results) == 1
         quote = results[0]
@@ -42,7 +50,11 @@ class TestAlpacaParsing:
 
     @pytest.mark.asyncio
     async def test_parse_bar(self, alpaca_client: AlpacaClient):
-        raw = b'[{"T":"b","S":"AAPL","o":185.0,"h":186.0,"l":184.0,"c":185.5,"v":10000,"vw":185.25,"t":"2024-01-01T10:00:00Z","n":50}]'
+        raw = (
+            b'[{"T":"b","S":"AAPL","o":185.0,"h":186.0,'
+            b'"l":184.0,"c":185.5,"v":10000,"vw":185.25,'
+            b'"t":"2024-01-01T10:00:00Z","n":50}]'
+        )
         results = await alpaca_client._parse_message(raw)
         assert len(results) == 1
         bar = results[0]

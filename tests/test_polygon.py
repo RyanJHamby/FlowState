@@ -17,7 +17,11 @@ def polygon_client() -> PolygonClient:
 class TestPolygonParsing:
     @pytest.mark.asyncio
     async def test_parse_trade(self, polygon_client: PolygonClient):
-        raw = b'[{"ev":"T","sym":"AAPL","p":185.5,"s":100,"t":1700000000000,"x":"4","c":[" ","12"],"i":"12345","z":"3","q":1}]'
+        raw = (
+            b'[{"ev":"T","sym":"AAPL","p":185.5,"s":100,'
+            b'"t":1700000000000,"x":"4","c":[" ","12"],'
+            b'"i":"12345","z":"3","q":1}]'
+        )
         results = await polygon_client._parse_message(raw)
         assert len(results) == 1
         trade = results[0]
@@ -29,7 +33,11 @@ class TestPolygonParsing:
 
     @pytest.mark.asyncio
     async def test_parse_quote(self, polygon_client: PolygonClient):
-        raw = b'[{"ev":"Q","sym":"AAPL","bp":185.4,"bs":200,"ap":185.6,"as":300,"t":1700000000000,"bx":"4","ax":"7"}]'
+        raw = (
+            b'[{"ev":"Q","sym":"AAPL","bp":185.4,"bs":200,'
+            b'"ap":185.6,"as":300,"t":1700000000000,'
+            b'"bx":"4","ax":"7"}]'
+        )
         results = await polygon_client._parse_message(raw)
         assert len(results) == 1
         quote = results[0]
@@ -39,7 +47,11 @@ class TestPolygonParsing:
 
     @pytest.mark.asyncio
     async def test_parse_bar(self, polygon_client: PolygonClient):
-        raw = b'[{"ev":"A","sym":"AAPL","o":185.0,"h":186.0,"l":184.0,"c":185.5,"v":10000,"vw":185.25,"s":1700000000000,"n":50}]'
+        raw = (
+            b'[{"ev":"A","sym":"AAPL","o":185.0,"h":186.0,'
+            b'"l":184.0,"c":185.5,"v":10000,"vw":185.25,'
+            b'"s":1700000000000,"n":50}]'
+        )
         results = await polygon_client._parse_message(raw)
         assert len(results) == 1
         bar = results[0]
@@ -56,7 +68,12 @@ class TestPolygonParsing:
 
     @pytest.mark.asyncio
     async def test_parse_multiple_events(self, polygon_client: PolygonClient):
-        raw = b'[{"ev":"T","sym":"AAPL","p":185.5,"s":100,"t":1700000000000},{"ev":"T","sym":"MSFT","p":370.0,"s":50,"t":1700000000001}]'
+        raw = (
+            b'[{"ev":"T","sym":"AAPL","p":185.5,"s":100,'
+            b'"t":1700000000000},'
+            b'{"ev":"T","sym":"MSFT","p":370.0,"s":50,'
+            b'"t":1700000000001}]'
+        )
         results = await polygon_client._parse_message(raw)
         assert len(results) == 2
         assert results[0]["symbol"] == "AAPL"

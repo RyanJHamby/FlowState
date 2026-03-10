@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import time
-
 import numpy as np
 import pyarrow as pa
 
 from flowstate.prism.pinned_buffer import PinnedBufferPool
 from flowstate.prism.prefetcher import (
     PrefetchConfig,
-    PrefetchPipeline,
     PrefetchedBatch,
+    PrefetchPipeline,
 )
 
 TS = pa.timestamp("ns", tz="UTC")

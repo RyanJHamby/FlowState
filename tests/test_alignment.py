@@ -64,7 +64,7 @@ class TestAlignedBuffer:
         with AlignedBuffer(64) as buf:
             try:
                 buf.write(b"x" * 128)
-                assert False, "Should have raised"
+                raise AssertionError("Should have raised")
             except ValueError:
                 pass
 

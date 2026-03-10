@@ -11,16 +11,15 @@ All GPU features degrade gracefully to CPU when CUDA is not available.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterator
 
 import numpy as np
 import pyarrow as pa
 
 from flowstate.prism.alignment import (
     AlignmentStats,
-    AsOfConfig,
     TemporalAligner,
 )
 from flowstate.prism.pinned_buffer import PinnedBufferConfig, PinnedBufferPool
@@ -157,9 +156,11 @@ class GPUDataPipeline:
             result = {}
             for name in batch.schema.names:
                 col = batch.batch.column(name)
-                if pa.types.is_floating(col.type) or pa.types.is_integer(col.type):
-                    result[name] = batch.column_numpy(name)
-                elif pa.types.is_timestamp(col.type):
+                if (
+                    pa.types.is_floating(col.type)
+                    or pa.types.is_integer(col.type)
+                    or pa.types.is_timestamp(col.type)
+                ):
                     result[name] = batch.column_numpy(name)
             batch.release_to(self._pool)
             yield result

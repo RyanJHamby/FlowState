@@ -185,7 +185,7 @@ class SequenceTracker:
         sequences = batch.column("sequence").to_pylist()
         gaps = []
 
-        for sym, seq in zip(symbols, sequences):
+        for sym, seq in zip(symbols, sequences, strict=False):
             if seq is not None:
                 gap = self.track(sym, seq)
                 if gap is not None:

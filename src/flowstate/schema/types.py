@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 import pyarrow as pa
 
@@ -10,7 +10,7 @@ import pyarrow as pa
 TIMESTAMP_NS = pa.timestamp("ns", tz="UTC")
 
 
-class MarketDataType(str, Enum):
+class MarketDataType(StrEnum):
     """Enumeration of supported market data types."""
 
     TRADE = "trade"

@@ -22,7 +22,6 @@ from flowstate.features.microstructure import (
     YangZhangVolatility,
 )
 
-
 # ---------------------------------------------------------------------------
 # EWMA
 # ---------------------------------------------------------------------------
@@ -212,8 +211,8 @@ class TestYangZhangVolatility:
             (108, 112, 106, 110),
             (110, 115, 108, 113),
         ]
-        for o, h, l, c in bars:
-            yz.update(o, h, l, c)
+        for o, h, low, c in bars:
+            yz.update(o, h, low, c)
         vol = yz.value
         assert vol is not None
         assert vol > 0
@@ -323,7 +322,7 @@ class TestKyleLambda:
 
     def test_count(self):
         kl = KyleLambda()
-        for i in range(10):
+        for _i in range(10):
             kl.update(0.01, 100.0)
         assert kl.count == 10
 
@@ -557,8 +556,8 @@ class TestMicrostructureEngine:
             (105, 110, 103, 108),
             (108, 112, 106, 110),
         ]
-        for o, h, l, c in bars:
-            engine.update_bar("AAPL", o, h, l, c)
+        for o, h, low, c in bars:
+            engine.update_bar("AAPL", o, h, low, c)
         snap = engine.snapshot("AAPL")
         assert snap.yang_zhang_vol is not None
         assert snap.yang_zhang_vol > 0

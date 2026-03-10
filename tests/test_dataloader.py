@@ -76,7 +76,11 @@ class TestFlowStateIterableDataset:
     def test_with_filter(self, data_dir: Path):
         f = ReplayFilter(symbols=["AAPL"])
         ds = FlowStateIterableDataset(str(data_dir), replay_filter=f)
-        total = sum(batch["price"].shape[0] for batch in ds if isinstance(batch.get("price"), np.ndarray))
+        total = sum(
+            batch["price"].shape[0]
+            for batch in ds
+            if isinstance(batch.get("price"), np.ndarray)
+        )
         assert total == 2
 
 

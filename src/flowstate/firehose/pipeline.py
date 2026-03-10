@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import orjson
 
 from flowstate.firehose.client import MarketDataClient
-from flowstate.firehose.ring_buffer import RingBuffer, RingBufferFull
+from flowstate.firehose.ring_buffer import RingBuffer, RingBufferFullError
 from flowstate.ops.metrics import MetricsRegistry
 from flowstate.schema.normalization import Normalizer
 from flowstate.schema.validation import SequenceTracker
@@ -97,7 +97,7 @@ class IngestionPipeline:
                     self._ring_buffer.put(serialized)
                     self._stats.messages_normalized += 1
                     throughput.increment()
-            except RingBufferFull:
+            except RingBufferFullError:
                 self._stats.buffer_overflows += 1
                 self._stats.messages_dropped += 1
                 logger.warning("Ring buffer full, dropping message")

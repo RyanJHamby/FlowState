@@ -14,8 +14,7 @@ from __future__ import annotations
 import logging
 import threading
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -96,7 +95,9 @@ class PinnedBuffer:
 
     def view(self, dtype: np.dtype, shape: tuple[int, ...]) -> np.ndarray:
         """Reinterpret the buffer with a different dtype/shape."""
-        return np.frombuffer(self._array.data, dtype=dtype, count=int(np.prod(shape))).reshape(shape)
+        return np.frombuffer(
+            self._array.data, dtype=dtype, count=int(np.prod(shape)),
+        ).reshape(shape)
 
 
 class PinnedBufferPool:

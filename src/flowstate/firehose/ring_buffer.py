@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import mmap
+import contextlib
 import struct
-import threading
 from multiprocessing import shared_memory
 from typing import Final
 
@@ -25,11 +24,11 @@ SLOT_SIZE_OFFSET: Final[int] = CACHE_LINE_SIZE * 3
 LENGTH_PREFIX_SIZE: Final[int] = 4
 
 
-class RingBufferFull(Exception):
+class RingBufferFullError(Exception):
     """Raised when attempting to write to a full ring buffer."""
 
 
-class RingBufferEmpty(Exception):
+class RingBufferEmptyError(Exception):
     """Raised when attempting to read from an empty ring buffer."""
 
 
@@ -130,7 +129,7 @@ class RingBuffer:
             data: The bytes to write (must fit in slot_size - LENGTH_PREFIX_SIZE).
 
         Raises:
-            RingBufferFull: If the buffer is full.
+            RingBufferFullError: If the buffer is full.
             ValueError: If data exceeds slot capacity.
         """
         max_payload = self._slot_size - LENGTH_PREFIX_SIZE
@@ -139,7 +138,7 @@ class RingBuffer:
                 f"Data size {len(data)} exceeds max payload {max_payload}"
             )
         if self.is_full:
-            raise RingBufferFull("Ring buffer is full")
+            raise RingBufferFullError("Ring buffer is full")
 
         wp = self.write_pos
         offset = self._slot_offset(wp)
@@ -158,17 +157,18 @@ class RingBuffer:
             The bytes stored in the slot.
 
         Raises:
-            RingBufferEmpty: If the buffer is empty.
+            RingBufferEmptyError: If the buffer is empty.
         """
         if self.is_empty:
-            raise RingBufferEmpty("Ring buffer is empty")
+            raise RingBufferEmptyError("Ring buffer is empty")
 
         rp = self.read_pos
         offset = self._slot_offset(rp)
 
         # Read length prefix
         length = struct.unpack_from("I", self._shm.buf, offset)[0]
-        data = bytes(self._shm.buf[offset + LENGTH_PREFIX_SIZE : offset + LENGTH_PREFIX_SIZE + length])
+        end = offset + LENGTH_PREFIX_SIZE + length
+        data = bytes(self._shm.buf[offset + LENGTH_PREFIX_SIZE : end])
 
         # Advance read position
         self._write_int(READ_POS_OFFSET, rp + 1)
@@ -189,7 +189,5 @@ class RingBuffer:
         self.close()
 
     def __del__(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._shm.close()
-        except Exception:
-            pass

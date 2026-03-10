@@ -105,7 +105,7 @@ def _vectorized_backward(
     instead of per-element Python bisect. Returns int64 index array where
     -1 indicates no match.
     """
-    n_left = len(left_ts)
+    len(left_ts)
     if allow_exact:
         # searchsorted('right') gives first index > left_ts[i], so -1 gives <=
         pos = np.searchsorted(right_ts, left_ts, side="right").astype(np.int64) - 1
@@ -198,11 +198,17 @@ def _vectorized_asof_indices(
         return np.full(len(left_ts), _INVALID_INDEX, dtype=np.int64)
 
     if cfg.direction == "backward":
-        return _vectorized_backward(left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match)
+        return _vectorized_backward(
+            left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match,
+        )
     elif cfg.direction == "forward":
-        return _vectorized_forward(left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match)
+        return _vectorized_forward(
+            left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match,
+        )
     else:
-        return _vectorized_nearest(left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match)
+        return _vectorized_nearest(
+            left_ts, right_ts_sorted, cfg.tolerance_ns, cfg.allow_exact_match,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -268,9 +274,13 @@ def as_of_join(
         return result, stats
 
     if by is not None and by in left.schema.names and by in right.schema.names:
-        result = _as_of_join_grouped(left, right, on, by, right_value_cols, prefixed_names, cfg, stats)
+        result = _as_of_join_grouped(
+            left, right, on, by, right_value_cols, prefixed_names, cfg, stats,
+        )
     else:
-        result = _as_of_join_ungrouped(left, right, on, right_value_cols, prefixed_names, cfg, stats)
+        result = _as_of_join_ungrouped(
+            left, right, on, right_value_cols, prefixed_names, cfg, stats,
+        )
 
     stats.unmatched_rows = stats.left_rows - stats.matched_rows
     return result, stats
@@ -485,7 +495,12 @@ def _gather_and_append(
 
             # For variable-length types (strings, lists), we must go through
             # Python values to safely apply the null mask
-            if pa.types.is_binary(col_type) or pa.types.is_string(col_type) or pa.types.is_large_string(col_type) or pa.types.is_list(col_type):
+            if (
+                pa.types.is_binary(col_type)
+                or pa.types.is_string(col_type)
+                or pa.types.is_large_string(col_type)
+                or pa.types.is_list(col_type)
+            ):
                 values = gathered.to_pylist()
                 for i in range(n):
                     if not matched_mask[i]:
@@ -546,7 +561,9 @@ def align_streams(
         if by_col not in result.schema.names or by_col not in right.schema.names:
             by_col = None
 
-        result, join_stats = as_of_join(result, right, on=primary_timestamp_col, by=by_col, config=cfg)
+        result, join_stats = as_of_join(
+            result, right, on=primary_timestamp_col, by=by_col, config=cfg,
+        )
         all_stats[spec.name] = join_stats
 
     return result, all_stats

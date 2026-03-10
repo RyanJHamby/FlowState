@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from flowstate.firehose.client import ConnectionState, MarketDataClient
@@ -12,7 +12,7 @@ from flowstate.firehose.ring_buffer import RingBuffer
 from flowstate.ops.metrics import MetricsRegistry
 
 
-class HealthStatus(str, Enum):
+class HealthStatus(StrEnum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"

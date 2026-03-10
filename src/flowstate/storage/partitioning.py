@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import xxhash
@@ -76,7 +76,7 @@ class PartitionScheme:
         Returns:
             A PartitionKey with type, date, and bucket.
         """
-        dt = datetime.fromtimestamp(timestamp_ns / 1e9, tz=timezone.utc)
+        dt = datetime.fromtimestamp(timestamp_ns / 1e9, tz=UTC)
         date_str = dt.strftime("%Y-%m-%d")
         bucket = self.bucket_for(symbol)
         return PartitionKey(data_type=data_type, date=date_str, bucket=bucket)

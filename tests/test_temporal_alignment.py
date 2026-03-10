@@ -7,7 +7,6 @@ import pytest
 
 from flowstate.prism.alignment import (
     AlignmentSpec,
-    AlignmentStats,
     AsOfConfig,
     TemporalAligner,
     align_streams,

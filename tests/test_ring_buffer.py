@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from flowstate.firehose.ring_buffer import RingBuffer, RingBufferEmpty, RingBufferFull
+from flowstate.firehose.ring_buffer import RingBuffer, RingBufferEmptyError, RingBufferFullError
 
 
 @pytest.fixture
@@ -51,11 +51,11 @@ class TestRingBuffer:
         for i in range(16):
             ring.put(f"msg_{i}".encode())
         assert ring.is_full
-        with pytest.raises(RingBufferFull):
+        with pytest.raises(RingBufferFullError):
             ring.put(b"overflow")
 
     def test_empty_raises(self, ring: RingBuffer):
-        with pytest.raises(RingBufferEmpty):
+        with pytest.raises(RingBufferEmptyError):
             ring.get()
 
     def test_wraparound(self, ring: RingBuffer):
@@ -90,7 +90,7 @@ def _producer(name: str, count: int):
             try:
                 rb.put(f"msg_{i}".encode())
                 break
-            except RingBufferFull:
+            except RingBufferFullError:
                 pass  # Spin wait
     rb.close()
 
@@ -108,7 +108,7 @@ class TestMultiProcess:
             try:
                 data = rb.get()
                 received.append(data)
-            except RingBufferEmpty:
+            except RingBufferEmptyError:
                 pass  # Spin wait
 
         proc.join(timeout=5)
