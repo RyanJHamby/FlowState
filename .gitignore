@@ -30,6 +30,10 @@ htmlcov/
 .DS_Store
 Thumbs.db
 
+# Rust
+target/
+flowstate-core/target/
+
 # Data
 *.parquet
 *.arrow
