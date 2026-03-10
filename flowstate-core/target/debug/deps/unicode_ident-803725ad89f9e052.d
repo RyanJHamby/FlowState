@@ -1,8 +1,0 @@
-/Users/ryanhamby/Documents/FlowState/flowstate-core/target/debug/deps/unicode_ident-803725ad89f9e052.d: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-ident-1.0.24/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-ident-1.0.24/src/tables.rs
-
-/Users/ryanhamby/Documents/FlowState/flowstate-core/target/debug/deps/libunicode_ident-803725ad89f9e052.rlib: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-ident-1.0.24/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-ident-1.0.24/src/tables.rs
-
-/Users/ryanhamby/Documents/FlowState/flowstate-core/target/debug/deps/libunicode_ident-803725ad89f9e052.rmeta: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-ident-1.0.24/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-ident-1.0.24/src/tables.rs
-
-/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-ident-1.0.24/src/lib.rs:
-/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/unicode-ident-1.0.24/src/tables.rs:
