@@ -1,0 +1,14 @@
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/deps/serde-c66d9d7f3a45b0e8.d: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/serde-80907672d8903a09/out/private.rs
+
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/deps/libserde-c66d9d7f3a45b0e8.rlib: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/serde-80907672d8903a09/out/private.rs
+
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/deps/libserde-c66d9d7f3a45b0e8.rmeta: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/serde-80907672d8903a09/out/private.rs
+
+/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/serde-80907672d8903a09/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/serde-80907672d8903a09/out

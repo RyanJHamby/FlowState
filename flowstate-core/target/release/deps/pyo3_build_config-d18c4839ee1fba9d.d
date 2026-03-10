@@ -1,0 +1,14 @@
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/deps/pyo3_build_config-d18c4839ee1fba9d.d: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/errors.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/impl_.rs /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out/pyo3-build-config-file.txt /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out/pyo3-build-config.txt
+
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/deps/libpyo3_build_config-d18c4839ee1fba9d.rlib: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/errors.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/impl_.rs /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out/pyo3-build-config-file.txt /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out/pyo3-build-config.txt
+
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/deps/libpyo3_build_config-d18c4839ee1fba9d.rmeta: /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/lib.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/errors.rs /Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/impl_.rs /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out/pyo3-build-config-file.txt /Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out/pyo3-build-config.txt
+
+/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/lib.rs:
+/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/errors.rs:
+/Users/ryanhamby/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/pyo3-build-config-0.28.2/src/impl_.rs:
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out/pyo3-build-config-file.txt:
+/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out/pyo3-build-config.txt:
+
+# env-dep:CARGO_PKG_VERSION=0.28.2
+# env-dep:OUT_DIR=/Users/ryanhamby/Documents/FlowState/flowstate-core/target/release/build/pyo3-build-config-abf717e2bede6f6f/out

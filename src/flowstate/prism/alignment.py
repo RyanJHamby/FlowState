@@ -30,6 +30,16 @@ logger = logging.getLogger(__name__)
 _NS_DTYPE = pa.int64()
 _INVALID_INDEX = -1  # Sentinel for unmatched rows
 
+# Rust acceleration: import if available, fall back to pure Python
+try:
+    import flowstate_core as _rust_core
+
+    _HAS_RUST = True
+    logger.info("Rust acceleration available (flowstate_core)")
+except ImportError:
+    _rust_core = None  # type: ignore[assignment]
+    _HAS_RUST = False
+
 
 @dataclass(frozen=True)
 class AsOfConfig:
@@ -243,6 +253,20 @@ def as_of_join(
     if right.num_rows == 0:
         return _append_null_columns(left, right, right_value_cols, prefixed_names, stats)
 
+    # Rust fast path: delegate to compiled kernel when available
+    if _HAS_RUST:
+        result = _rust_as_of_join(left, right, on, by, cfg)
+        # Count matches by checking nulls in the first right-side value column
+        first_right_col = right_value_cols[0]
+        output_name = prefixed_names.get(first_right_col, first_right_col)
+        if output_name in result.schema.names:
+            null_count = result.column(output_name).null_count
+            stats.matched_rows = left.num_rows - null_count
+        else:
+            stats.matched_rows = 0
+        stats.unmatched_rows = left.num_rows - stats.matched_rows
+        return result, stats
+
     if by is not None and by in left.schema.names and by in right.schema.names:
         result = _as_of_join_grouped(left, right, on, by, right_value_cols, prefixed_names, cfg, stats)
     else:
@@ -250,6 +274,26 @@ def as_of_join(
 
     stats.unmatched_rows = stats.left_rows - stats.matched_rows
     return result, stats
+
+
+def _rust_as_of_join(
+    left: pa.Table,
+    right: pa.Table,
+    on: str,
+    by: str | None,
+    cfg: AsOfConfig,
+) -> pa.Table:
+    """Dispatch as-of join to the Rust kernel (flowstate_core)."""
+    return _rust_core.asof_join(
+        left,
+        right,
+        on=on,
+        by=by,
+        tolerance_ns=cfg.tolerance_ns,
+        right_prefix=cfg.right_prefix,
+        direction=cfg.direction,
+        allow_exact_match=cfg.allow_exact_match,
+    )
 
 
 def _append_null_columns(
@@ -470,10 +514,13 @@ def align_streams(
 ) -> tuple[pa.Table, dict[str, AlignmentStats]]:
     """Align multiple data streams onto a primary timeline.
 
-    Performs sequential as-of joins of each secondary stream onto the
-    primary table. Each secondary stream's columns are prefixed with
-    the stream name to avoid collisions.
+    When the Rust kernel is available, all joins run in parallel.
+    Falls back to sequential Python joins otherwise.
     """
+    # Rust fast path: parallel multi-stream alignment
+    if _HAS_RUST:
+        return _rust_align_streams(primary, secondaries, primary_timestamp_col, primary_symbol_col)
+
     result = primary
     all_stats: dict[str, AlignmentStats] = {}
 
@@ -501,6 +548,63 @@ def align_streams(
 
         result, join_stats = as_of_join(result, right, on=primary_timestamp_col, by=by_col, config=cfg)
         all_stats[spec.name] = join_stats
+
+    return result, all_stats
+
+
+def _rust_align_streams(
+    primary: pa.Table,
+    secondaries: list[AlignmentSpec],
+    primary_timestamp_col: str,
+    primary_symbol_col: str,
+) -> tuple[pa.Table, dict[str, AlignmentStats]]:
+    """Dispatch multi-stream alignment to Rust kernel (parallel joins)."""
+    stream_dicts = []
+    all_stats: dict[str, AlignmentStats] = {}
+
+    for spec in secondaries:
+        if spec.value_columns is not None:
+            keep = list(set(spec.value_columns + [spec.timestamp_col]))
+            if spec.symbol_col in spec.table.schema.names:
+                keep.append(spec.symbol_col)
+            keep = [c for c in keep if c in spec.table.schema.names]
+            right = spec.table.select(keep)
+        else:
+            right = spec.table
+
+        prefix = spec.config.right_prefix or f"{spec.name}_"
+
+        stream_dicts.append({
+            "table": right,
+            "prefix": prefix,
+            "direction": spec.config.direction,
+            "tolerance_ns": spec.config.tolerance_ns,
+            "allow_exact_match": spec.config.allow_exact_match,
+        })
+
+    by_col = primary_symbol_col
+    if by_col not in primary.schema.names:
+        by_col = None
+
+    result = _rust_core.align_streams(
+        primary,
+        stream_dicts,
+        on=primary_timestamp_col,
+        by=by_col,
+    )
+
+    # Compute stats from null counts per stream
+    col_offset = len(primary.schema.names)
+    for spec in secondaries:
+        right_cols = [c for c in spec.table.schema.names
+                      if c != spec.timestamp_col and c != spec.symbol_col]
+        stats = AlignmentStats(left_rows=primary.num_rows, right_rows=spec.table.num_rows)
+        if right_cols and col_offset < len(result.schema.names):
+            null_count = result.column(col_offset).null_count
+            stats.matched_rows = primary.num_rows - null_count
+            stats.unmatched_rows = null_count
+            col_offset += len(right_cols)
+        all_stats[spec.name] = stats
 
     return result, all_stats
 

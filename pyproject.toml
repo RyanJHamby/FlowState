@@ -9,7 +9,7 @@ description = "Temporal alignment engine and GPU-accelerated data feeding for qu
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
-authors = [{ name = "FlowState Contributors" }]
+authors = [{ name = "Ryan Hamby", email = "ryan.j.hamby@gmail.com" }]
 keywords = [
     "quantitative-finance",
     "temporal-alignment",

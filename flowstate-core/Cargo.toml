@@ -1,0 +1,40 @@
+[package]
+name = "flowstate-core"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "High-performance temporal join engine for financial data"
+
+[lib]
+name = "flowstate_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["python"]
+python = ["pyo3", "pyo3-arrow"]
+
+[dependencies]
+pyo3 = { version = "0.28", features = ["extension-module"], optional = true }
+pyo3-arrow = { version = "0.17", optional = true }
+arrow-array = "58"
+arrow-schema = "58"
+arrow-select = "58"
+arrow-cast = "58"
+arrow-ipc = "58"
+arrow-ord = "58"
+rayon = "1.10"
+ahash = "0.8"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.6"
+tempfile = "3"
+
+[[bench]]
+name = "asof_bench"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
