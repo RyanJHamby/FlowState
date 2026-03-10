@@ -34,6 +34,10 @@ tempfile = "3"
 name = "asof_bench"
 harness = false
 
+[[bench]]
+name = "spsc_bench"
+harness = false
+
 [profile.release]
 lto = true
 codegen-units = 1

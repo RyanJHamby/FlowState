@@ -6,6 +6,7 @@
 
 pub mod asof;
 pub mod ipc;
+pub mod spsc;
 
 // ---------------------------------------------------------------------------
 // Python bindings (only compiled with the "python" feature)
