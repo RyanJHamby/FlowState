@@ -12,11 +12,10 @@ from __future__ import annotations
 
 import time
 
-import numpy as np
-import pyarrow as pa
-
 import flowstate_core
+import numpy as np
 import polars as pl
+import pyarrow as pa
 
 
 def make_data(n_left: int, n_right: int, n_symbols: int, seed: int = 42):
@@ -58,7 +57,10 @@ def bench_single_join():
     print("=" * 72)
     print("SINGLE AS-OF JOIN (backward, grouped by symbol)")
     print("=" * 72)
-    print(f"{'Left':>10s} {'Right':>10s} {'Symbols':>8s} {'Rust ms':>9s} {'Polars ms':>10s} {'Ratio':>7s}")
+    print(
+        f"{'Left':>10s} {'Right':>10s} {'Symbols':>8s} "
+        f"{'Rust ms':>9s} {'Polars ms':>10s} {'Ratio':>7s}"
+    )
     print("-" * 72)
 
     configs = [
@@ -73,16 +75,19 @@ def bench_single_join():
         left_pl = pl.from_arrow(left)
         right_pl = pl.from_arrow(right)
 
-        rust_ms = bench(lambda: flowstate_core.asof_join(
+        rust_ms = bench(lambda left=left, right=right: flowstate_core.asof_join(
             left, right, on="timestamp", by="symbol", direction="backward"
         )) * 1000
 
-        polars_ms = bench(lambda: left_pl.join_asof(
-            right_pl, on="timestamp", by="symbol", strategy="backward"
+        polars_ms = bench(lambda lp=left_pl, rp=right_pl: lp.join_asof(
+            rp, on="timestamp", by="symbol", strategy="backward"
         )) * 1000
 
         ratio = rust_ms / polars_ms
-        print(f"{n_left:>10,d} {n_right:>10,d} {n_sym:>8,d} {rust_ms:>9.1f} {polars_ms:>10.1f} {ratio:>6.2f}x")
+        print(
+            f"{n_left:>10,d} {n_right:>10,d} {n_sym:>8,d} "
+            f"{rust_ms:>9.1f} {polars_ms:>10.1f} {ratio:>6.2f}x"
+        )
 
 
 def bench_ungrouped():
@@ -108,16 +113,19 @@ def bench_ungrouped():
         left_pl = pl.from_arrow(left_ug)
         right_pl = pl.from_arrow(right_ug)
 
-        rust_ms = bench(lambda: flowstate_core.asof_join(
-            left_ug, right_ug, on="timestamp", direction="backward"
+        rust_ms = bench(lambda lu=left_ug, ru=right_ug: flowstate_core.asof_join(
+            lu, ru, on="timestamp", direction="backward"
         )) * 1000
 
-        polars_ms = bench(lambda: left_pl.join_asof(
-            right_pl, on="timestamp", strategy="backward"
+        polars_ms = bench(lambda lp=left_pl, rp=right_pl: lp.join_asof(
+            rp, on="timestamp", strategy="backward"
         )) * 1000
 
         ratio = rust_ms / polars_ms
-        print(f"{n_left:>10,d} {n_right:>10,d} {rust_ms:>9.1f} {polars_ms:>10.1f} {ratio:>6.2f}x")
+        print(
+            f"{n_left:>10,d} {n_right:>10,d} "
+            f"{rust_ms:>9.1f} {polars_ms:>10.1f} {ratio:>6.2f}x"
+        )
 
 
 def bench_multi_stream():
@@ -125,7 +133,10 @@ def bench_multi_stream():
     print("=" * 72)
     print("MULTI-STREAM ALIGNMENT (parallel Rust vs sequential Polars)")
     print("=" * 72)
-    print(f"{'Streams':>8s} {'Left':>10s} {'Per-stream':>11s} {'Rust ms':>9s} {'Polars ms':>10s} {'Ratio':>7s}")
+    print(
+        f"{'Streams':>8s} {'Left':>10s} {'Per-stream':>11s} "
+        f"{'Rust ms':>9s} {'Polars ms':>10s} {'Ratio':>7s}"
+    )
     print("-" * 72)
 
     n_left = 1_000_000
@@ -163,23 +174,27 @@ def bench_multi_stream():
             stream_tables_pl.append(pl.from_arrow(t))
 
         # Rust: parallel multi-stream
-        rust_ms = bench(lambda: flowstate_core.align_streams(
-            primary, stream_dicts, on="timestamp", by="symbol"
+        rust_ms = bench(lambda sd=stream_dicts: flowstate_core.align_streams(
+            primary, sd, on="timestamp", by="symbol"
         )) * 1000
 
         # Polars: sequential joins (Polars has no multi-stream API)
-        def polars_sequential():
+        def polars_sequential(tables=stream_tables_pl):
             result = primary_pl
-            for s, tpl in enumerate(stream_tables_pl):
+            for s, tpl in enumerate(tables):
                 result = result.join_asof(
-                    tpl, on="timestamp", by="symbol", strategy="backward", suffix=f"_s{s}"
+                    tpl, on="timestamp", by="symbol",
+                    strategy="backward", suffix=f"_s{s}",
                 )
             return result
 
         polars_ms = bench(polars_sequential) * 1000
 
         ratio = rust_ms / polars_ms
-        print(f"{n_streams:>8d} {n_left:>10,d} {n_per:>11,d} {rust_ms:>9.1f} {polars_ms:>10.1f} {ratio:>6.2f}x")
+        print(
+            f"{n_streams:>8d} {n_left:>10,d} {n_per:>11,d} "
+            f"{rust_ms:>9.1f} {polars_ms:>10.1f} {ratio:>6.2f}x"
+        )
 
 
 def bench_directions():
@@ -194,13 +209,18 @@ def bench_directions():
     left_pl = pl.from_arrow(left)
     right_pl = pl.from_arrow(right)
 
-    for direction, polars_strategy in [("backward", "backward"), ("forward", "forward"), ("nearest", "nearest")]:
-        rust_ms = bench(lambda: flowstate_core.asof_join(
-            left, right, on="timestamp", by="symbol", direction=direction
+    directions = [
+        ("backward", "backward"),
+        ("forward", "forward"),
+        ("nearest", "nearest"),
+    ]
+    for direction, polars_strategy in directions:
+        rust_ms = bench(lambda d=direction: flowstate_core.asof_join(
+            left, right, on="timestamp", by="symbol", direction=d
         )) * 1000
 
-        polars_ms = bench(lambda: left_pl.join_asof(
-            right_pl, on="timestamp", by="symbol", strategy=polars_strategy
+        polars_ms = bench(lambda s=polars_strategy: left_pl.join_asof(
+            right_pl, on="timestamp", by="symbol", strategy=s
         )) * 1000
 
         ratio = rust_ms / polars_ms
@@ -209,7 +229,8 @@ def bench_directions():
 
 if __name__ == "__main__":
     print("FlowState Temporal Join Engine — Benchmark Suite")
-    print(f"Rust kernel: flowstate_core v{flowstate_core.__version__ if hasattr(flowstate_core, '__version__') else '0.1.0'}")
+    version = getattr(flowstate_core, "__version__", "0.1.0")
+    print(f"Rust kernel: flowstate_core v{version}")
     print()
 
     bench_ungrouped()

@@ -53,7 +53,10 @@ def run(n_rows: int, n_symbols: int):
     con.execute("CREATE TABLE l AS SELECT * FROM lp")
     con.execute("CREATE TABLE r AS SELECT * FROM rp")
     t0 = time.perf_counter()
-    _ = con.execute("SELECT l.*, r.qprice FROM l ASOF LEFT JOIN r ON l.symbol = r.symbol AND l.timestamp >= r.timestamp").fetchall()
+    _ = con.execute(
+        "SELECT l.*, r.qprice FROM l ASOF LEFT JOIN r "
+        "ON l.symbol = r.symbol AND l.timestamp >= r.timestamp"
+    ).fetchall()
     dk_ms = (time.perf_counter() - t0) * 1000
     con.close()
 
@@ -79,9 +82,16 @@ def run(n_rows: int, n_symbols: int):
 
 if __name__ == "__main__":
     print("FlowState vs Polars vs DuckDB — Grouped As-Of Join (single run)")
-    print(f"{'ROWS':>10} {'SYMS':>6} {'POLARS':>10} {'DUCKDB':>10} {'FLOWST':>10} {'FS/PL':>8} {'FS/DK':>8}")
+    print(
+        f"{'ROWS':>10} {'SYMS':>6} {'POLARS':>10} "
+        f"{'DUCKDB':>10} {'FLOWST':>10} {'FS/PL':>8} {'FS/DK':>8}"
+    )
     print("=" * 74)
 
     for n, s in [(10_000, 10), (50_000, 50), (100_000, 50), (100_000, 200)]:
         pl_ms, dk_ms, fs_ms = run(n, s)
-        print(f"{n:>10,} {s:>6} {pl_ms:>9.1f} {dk_ms:>9.1f} {fs_ms:>9.1f} {fs_ms/pl_ms:>7.0f}x {fs_ms/dk_ms:>7.0f}x")
+        print(
+            f"{n:>10,} {s:>6} {pl_ms:>9.1f} {dk_ms:>9.1f} "
+            f"{fs_ms:>9.1f} {fs_ms/pl_ms:>7.0f}x "
+            f"{fs_ms/dk_ms:>7.0f}x"
+        )

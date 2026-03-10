@@ -22,7 +22,7 @@ def _make_data(n: int, n_symbols: int, seed: int = 42):
     """Generate test data in all three formats."""
     rng = np.random.default_rng(seed)
     n_per_sym = n // n_symbols
-    actual_n = n_per_sym * n_symbols
+    n_per_sym * n_symbols
 
     symbols = []
     timestamps = []
@@ -153,14 +153,28 @@ def main():
         (500_000, 50),
     ]
 
-    print(f"{'ROWS':>10} {'SYMS':>6} {'POLARS (ms)':>14} {'DUCKDB (ms)':>14} {'FLOWST (ms)':>14} {'vs POLARS':>10} {'vs DUCKDB':>10}")
+    print(
+        f"{'ROWS':>10} {'SYMS':>6} {'POLARS (ms)':>14} "
+        f"{'DUCKDB (ms)':>14} {'FLOWST (ms)':>14} "
+        f"{'vs POLARS':>10} {'vs DUCKDB':>10}"
+    )
     print("=" * 88)
 
     for n_rows, n_syms in configs:
         pl_ms, dk_ms, fs_ms = bench(n_rows, n_syms)
-        vs_pl = f"{fs_ms / pl_ms:.1f}x slow" if fs_ms > pl_ms else f"{pl_ms / fs_ms:.1f}x fast"
-        vs_dk = f"{fs_ms / dk_ms:.1f}x slow" if fs_ms > dk_ms else f"{dk_ms / fs_ms:.1f}x fast"
-        print(f"{n_rows:>10,} {n_syms:>6} {pl_ms:>13.1f} {dk_ms:>13.1f} {fs_ms:>13.1f} {vs_pl:>10} {vs_dk:>10}")
+        vs_pl = (
+            f"{fs_ms / pl_ms:.1f}x slow" if fs_ms > pl_ms
+            else f"{pl_ms / fs_ms:.1f}x fast"
+        )
+        vs_dk = (
+            f"{fs_ms / dk_ms:.1f}x slow" if fs_ms > dk_ms
+            else f"{dk_ms / fs_ms:.1f}x fast"
+        )
+        print(
+            f"{n_rows:>10,} {n_syms:>6} {pl_ms:>13.1f} "
+            f"{dk_ms:>13.1f} {fs_ms:>13.1f} "
+            f"{vs_pl:>10} {vs_dk:>10}"
+        )
 
 
 if __name__ == "__main__":

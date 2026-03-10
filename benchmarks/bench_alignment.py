@@ -26,7 +26,6 @@ import time
 
 import numpy as np
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from flowstate.prism.alignment import AsOfConfig, as_of_join
 
@@ -177,16 +176,16 @@ def bench_raw_matching(sizes: list[tuple[int, int]]):
         right_ts = np.sort(rng.integers(0, n_right * 100, size=n_right))
 
         # Verify correctness
-        def bisect_fn():
-            idx = np.full(n_left, -1, dtype=np.int64)
-            for i, t in enumerate(left_ts):
-                j = bisect.bisect_right(right_ts, t) - 1
+        def bisect_fn(n=n_left, lts=left_ts, rts=right_ts):
+            idx = np.full(n, -1, dtype=np.int64)
+            for i, t in enumerate(lts):
+                j = bisect.bisect_right(rts, t) - 1
                 if j >= 0:
                     idx[i] = j
             return idx
 
-        def vector_fn():
-            pos = np.searchsorted(right_ts, left_ts, side="right").astype(np.int64) - 1
+        def vector_fn(lts=left_ts, rts=right_ts):
+            pos = np.searchsorted(rts, lts, side="right").astype(np.int64) - 1
             pos[pos < 0] = -1
             return pos
 
@@ -195,7 +194,11 @@ def bench_raw_matching(sizes: list[tuple[int, int]]):
         bisect_ms = _time_fn(bisect_fn)
         vector_ms = _time_fn(vector_fn)
         speedup = bisect_ms / vector_ms if vector_ms > 0 else float("inf")
-        print(f"{n_left:>10,} {n_right:>10,} {bisect_ms:>13.2f} {vector_ms:>13.2f} {speedup:>9.1f}x")
+        print(
+            f"{n_left:>10,} {n_right:>10,} "
+            f"{bisect_ms:>13.2f} {vector_ms:>13.2f} "
+            f"{speedup:>9.1f}x"
+        )
 
 
 def bench_grouped_matching(n_rows: int, symbol_counts: list[int]):
@@ -241,7 +244,7 @@ def bench_full_pipeline(sizes: list[int], n_symbols: int = 50):
         left = left.rename_columns(["timestamp", "trade_price", "trade_size", "symbol"])
         right = right.rename_columns(["timestamp", "quote_price", "quote_size", "symbol"])
 
-        def run_join():
+        def run_join(left=left, right=right):
             return as_of_join(left, right, config=cfg)
 
         elapsed_ms = _time_fn(run_join, runs=3)
@@ -251,7 +254,7 @@ def bench_full_pipeline(sizes: list[int], n_symbols: int = 50):
 
 if __name__ == "__main__":
     print("Benchmark: Vectorized vs Bisect As-Of Join")
-    print(f"(median of runs, after warmup)\n")
+    print("(median of runs, after warmup)\n")
 
     bench_raw_matching([
         (1_000, 1_000),
