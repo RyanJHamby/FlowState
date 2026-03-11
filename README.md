@@ -47,9 +47,27 @@ graph TD
     J --> L
 ```
 
-## Performance
+## Comparison
 
-Benchmarked on Apple M-series, 1M left × 500K right rows, 1,000 symbols.
+As-of join benchmarks: 1M left × 500K right, 1,000 symbols, Apple M-series.
+
+| Capability | FlowState | Polars | pandas | kdb+/q | DuckDB |
+|---|---|---|---|---|---|
+| **Single as-of join** | 10 ms (grouped) | 18 ms | ~2,000 ms | <1 ms (in-memory) | ~50 ms |
+| **Multi-stream (8×)** | 85 ms | 100 ms | N/A | Manual | N/A |
+| **Streaming incremental** | Watermark-based | ✗ | ✗ | wj (windowed) | ✗ |
+| **GPU data feeding** | kvikio GDS + CUDA streams | ✗ | ✗ | ✗ | ✗ |
+| **Pinned memory pool** | cudaMallocHost + CPU fallback | ✗ | ✗ | ✗ | ✗ |
+| **Lock-free pipeline** | SPSC ring → join → coalesce | ✗ | ✗ | IPC | ✗ |
+| **Point-in-time default** | Backward (no look-ahead) | Backward | Forward-fill | aj (backward) | Backward |
+| **Tolerance + null** | Per-join configurable | Per-join | Manual | wj window | Per-join |
+| **Per-symbol grouping** | ahash, zero-alloc | Yes | Yes | Built-in | Yes |
+| **Arrow zero-copy** | PyCapsule Interface | Yes | No (copies) | No | Yes |
+| **ML DataLoader** | PyTorch + JAX adapters | ✗ | ✗ | ✗ | ✗ |
+
+FlowState is not a general-purpose DataFrame library. It is purpose-built for the temporal alignment → GPU tensor pipeline that quant teams reimplement at every firm.
+
+## Performance
 
 | Component | Metric | Detail |
 |---|---|---|
