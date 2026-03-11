@@ -55,7 +55,7 @@ As-of join benchmarks: 1M left × 500K right, 1,000 symbols, Apple M-series.
 |---|---|---|---|---|---|
 | **Single as-of join** | 10 ms (grouped) | 18 ms | ~2,000 ms | <1 ms (in-memory) | ~50 ms |
 | **Multi-stream (8×)** | 85 ms | 100 ms | N/A | Manual | N/A |
-| **Streaming incremental** | Watermark-based | ✗ | ✗ | wj (windowed) | ✗ |
+| **Streaming incremental** | Watermark + late policy | ✗ | ✗ | wj (windowed) | ✗ |
 | **GPU data feeding** | kvikio GDS + CUDA streams | ✗ | ✗ | ✗ | ✗ |
 | **Pinned memory pool** | cudaMallocHost + CPU fallback | ✗ | ✗ | ✗ | ✗ |
 | **Lock-free pipeline** | SPSC ring → join → coalesce | ✗ | ✗ | IPC | ✗ |
@@ -92,6 +92,8 @@ FlowState is not a general-purpose DataFrame library. It is purpose-built for th
 | **Multi-stream alignment** | Join N secondary streams concurrently via Rayon |
 | **No look-ahead bias** | Backward joins are the default — each row sees only data available at its timestamp |
 | **Three-level pruning** | Hive partition elimination → row-group statistics → column projection |
+| **Distributed replay** | File-level sharding (round-robin, symbol-affinity, time-range) across GPU ranks |
+| **Temporal feature store** | Versioned catalog, alignment-based materializer, Arrow IPC serving with symbol filtering |
 | **ML DataLoaders** | Native PyTorch `IterableDataset` and JAX iterator adapters |
 | **Cloud storage** | fsspec backends for S3, GCS, and Azure with NVMe LRU caching |
 
@@ -173,6 +175,52 @@ gpu_batch = reader.to_device(batch, stream_idx=0)
 reader.synchronize()
 ```
 
+### Streaming alignment (Python)
+
+```python
+from flowstate.prism.streaming import StreamingAligner, StreamingAlignConfig
+
+aligner = StreamingAligner(StreamingAlignConfig(
+    group_col="symbol",
+    tolerance_ns=5_000_000_000,
+    lateness_ns=1_000_000_000,
+))
+
+for batch in live_stream:
+    aligner.push_left(trade_batch)
+    aligner.push_right(quote_batch)
+    aligner.advance_watermark(current_event_time_ns)
+
+    result = aligner.emit()  # sealed rows only
+    if result is not None:
+        model.predict(result)
+
+final = aligner.flush()  # end-of-stream
+```
+
+### Temporal feature store
+
+```python
+from flowstate.store import FeatureCatalog, FeatureDefinition, FeatureMaterializer, FeatureServer
+
+catalog = FeatureCatalog("/data/features/catalog.json")
+catalog.register(FeatureDefinition(
+    name="trade_with_quote",
+    primary_stream="trade",
+    secondary_stream="quote",
+    columns=["bid_price", "ask_price"],
+    tolerance_ns=5_000_000_000,
+))
+
+materializer = FeatureMaterializer(catalog=catalog, output_dir="/data/features/mat")
+materializer.add_stream("trade", trade_table)
+materializer.add_stream("quote", quote_table)
+stats = materializer.materialize_all()
+
+server = FeatureServer(catalog=catalog, data_dir="/data/features/mat")
+table = server.get_feature("trade_with_quote", symbols=["AAPL"])
+```
+
 ## Rust Core
 
 6,400 lines of Rust, 132 tests (121 unit + 11 proptest). Exposed to Python via PyO3 + maturin.
@@ -201,7 +249,7 @@ flowstate-core/src/
 ## Testing
 
 ```bash
-python -m pytest tests/ -v                              # 447 Python tests
+python -m pytest tests/ -v                              # 562 Python tests
 cd flowstate-core && cargo test --no-default-features   # 132 Rust tests
 cargo bench --no-default-features                       # Criterion benchmarks
 ```
@@ -214,8 +262,9 @@ cargo bench --no-default-features                       # Criterion benchmarks
 - [x] Lock-free infrastructure — SPSC ring buffer, HDR histogram, Bloom filter, buffer pool
 - [x] Streaming pipeline — SPSC → join → coalesce → output, HdrHistogram latency tracking
 - [x] GPU data path — kvikio GDS reads, CUDA stream async H2D, pinned memory pool
-- [ ] Distributed replay — file-level sharding across ranks with NCCL barrier sync
-- [ ] Temporal feature store — catalog, materialization, Arrow Flight serving
+- [x] Distributed replay — file-level sharding across ranks with NCCL barrier sync
+- [x] Streaming Python aligner — watermark emission, late data policy, Rust/Python dual backend
+- [x] Temporal feature store — catalog, materialization engine, Arrow IPC serving
 
 ## License
 
