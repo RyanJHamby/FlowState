@@ -1,6 +1,6 @@
 <p align="center">
   <strong>FlowState</strong><br>
-  <em>Rust-accelerated temporal alignment engine for quantitative ML</em>
+  <em>Rust-accelerated temporal alignment engine for quantitative finance</em>
 </p>
 
 <p align="center">
@@ -11,108 +11,77 @@
 
 ---
 
-FlowState is a Rust-accelerated Python library for building point-in-time correct feature pipelines over market data. It joins heterogeneous streams — trades, quotes, bars — into aligned tensors at nanosecond precision, with GPU-accelerated data feeding via kvikio GPUDirect Storage for ML training workloads.
+## Problem
 
-Built for production environments where look-ahead bias is a showstopper and pandas doesn't scale.
+Every quantitative trading firm builds the same internal infrastructure: join heterogeneous market data streams — trades, quotes, bars, signals — into point-in-time correct feature matrices for model training and backtesting. The requirements are always the same:
+
+- **No look-ahead bias.** A trade at time `T` must only see quotes at time `<= T`. Violating this invalidates every backtest downstream.
+- **Nanosecond precision.** Microsecond timestamps lose ordering information in high-frequency data. Timestamps are `int64` nanoseconds, not floats.
+- **Hundreds of symbols, billions of rows.** pandas falls over at 10M rows. Polars handles it but treats as-of joins as one operation among hundreds — not the primary design target.
+- **Streaming and batch.** Research needs batch replay over historical data. Production needs incremental alignment on live feeds with watermark semantics.
+- **GPU-ready tensors.** The output goes into PyTorch or JAX. Every CPU copy between alignment and the GPU is wasted latency.
+
+FlowState solves this pipeline end-to-end: partitioned storage with three-level pruning, Rust-accelerated temporal joins, streaming watermark alignment, and GPU-direct data feeding — all connected through Apache Arrow zero-copy.
 
 ## Architecture
 
-```mermaid
-graph TD
-    subgraph Storage
-        A[Hive-Partitioned Parquet] -->|xxhash bucketing| B[NVMe Cache]
-        B --> C[S3 / GCS / Azure]
-    end
-
-    subgraph Replay
-        D[Partition Pruning] --> E[Row-Group Pushdown]
-        E --> F[K-Way Merge]
-    end
-
-    subgraph "Alignment (Rust Core)"
-        G[As-Of Join Engine] --> H[Multi-Stream Aligner]
-        H --> I[Streaming Join + Watermarks]
-        I --> J[Batch Coalescer]
-    end
-
-    subgraph "Data Feeding"
-        K[Arrow IPC Scanner] --> L[Pinned Memory Pool]
-        L -->|CUDA Streams| M[GPUDirect Storage]
-        M --> N[PyTorch / JAX DataLoader]
-    end
-
-    C --> D
-    B --> K
-    F --> G
-    J --> L
 ```
-
-## Comparison
-
-As-of join benchmarks: 1M left × 500K right, 1,000 symbols, Apple M-series.
-
-| Capability | FlowState | Polars | pandas | kdb+/q | DuckDB |
-|---|---|---|---|---|---|
-| **Single as-of join** | 10 ms (grouped) | 18 ms | ~2,000 ms | <1 ms (in-memory) | ~50 ms |
-| **Multi-stream (8×)** | 85 ms | 100 ms | N/A | Manual | N/A |
-| **Streaming incremental** | Watermark + late policy | ✗ | ✗ | wj (windowed) | ✗ |
-| **GPU data feeding** | kvikio GDS + CUDA streams | ✗ | ✗ | ✗ | ✗ |
-| **Pinned memory pool** | cudaMallocHost + CPU fallback | ✗ | ✗ | ✗ | ✗ |
-| **Lock-free pipeline** | SPSC ring → join → coalesce | ✗ | ✗ | IPC | ✗ |
-| **Point-in-time default** | Backward (no look-ahead) | Backward | Forward-fill | aj (backward) | Backward |
-| **Tolerance + null** | Per-join configurable | Per-join | Manual | wj window | Per-join |
-| **Per-symbol grouping** | ahash, zero-alloc | Yes | Yes | Built-in | Yes |
-| **Arrow zero-copy** | PyCapsule Interface | Yes | No (copies) | No | Yes |
-| **ML DataLoader** | PyTorch + JAX adapters | ✗ | ✗ | ✗ | ✗ |
-
-FlowState is not a general-purpose DataFrame library. It is purpose-built for the temporal alignment → GPU tensor pipeline that quant teams reimplement at every firm.
+                        ┌──────────────────────────────────┐
+                        │          Python API               │
+                        │  TemporalAligner · StreamingAligner│
+                        │  FeatureStore · ReplayEngine       │
+                        └──────────────┬───────────────────┘
+                                       │ Arrow PyCapsule Interface
+                                       │ (zero-copy, no serialization)
+                        ┌──────────────▼───────────────────┐
+                        │       Rust Core (PyO3)            │
+                        │  O(n+m) merge-scan · Rayon parallel│
+                        │  Streaming joins · Arrow IPC I/O   │
+                        │  6,400 lines · 132 tests           │
+                        └──────────────┬───────────────────┘
+                                       │
+              ┌────────────────────────┼────────────────────────┐
+              ▼                        ▼                        ▼
+    ┌─────────────────┐    ┌──────────────────┐    ┌──────────────────┐
+    │    Storage       │    │    Alignment      │    │   Data Feeding   │
+    │ Hive partitions  │    │ As-of join engine │    │ Pinned memory    │
+    │ xxhash bucketing │    │ Multi-stream (N×) │    │ kvikio GDS       │
+    │ NVMe LRU cache   │    │ Watermark stream  │    │ CUDA streams     │
+    │ S3/GCS/Azure     │    │ Batch coalescer   │    │ PyTorch/JAX      │
+    └─────────────────┘    └──────────────────┘    └──────────────────┘
+```
 
 ## Performance
 
-| Component | Metric | Detail |
-|---|---|---|
-| As-of join (ungrouped) | **4 ms** | O(n+m) merge-scan, single-threaded |
-| As-of join (grouped) | **10 ms** | ahash grouping → Rayon parallel per-group |
-| Parallel chunked scan | **1.2× speedup** at 5M+ | Binary-search cursor starts, disjoint writes |
-| Multi-stream (4 streams) | **Parity with Polars** | Rayon `par_iter` over independent joins |
-| Multi-stream (8 streams) | **15% faster than Polars** | No equivalent in Polars |
-| SPSC ring buffer | **82M elem/s** single-thread | AtomicU64, cache-line padded, 20M/s cross-thread |
-| Streaming join | Sub-microsecond emit | Watermark-based, HDR histogram tracked |
-| Arrow IPC scan | Parallel multi-file | Column projection, temporal range filtering |
+Benchmarked on 1M left × 500K right rows, 1,000 symbols, Apple M-series. Measured against Polars 1.x, the fastest general-purpose option.
 
-## Key Features
+| Operation | FlowState | Polars | Speedup |
+|---|---|---|---|
+| Grouped as-of join (1M rows, 1K symbols) | **10 ms** | 18 ms | 1.8x |
+| Ungrouped as-of join (1M rows) | **4 ms** | 7 ms | 1.8x |
+| Multi-stream alignment (4 streams) | **42 ms** | 42 ms | Parity |
+| Multi-stream alignment (8 streams) | **85 ms** | 100 ms | 1.2x |
+| Streaming incremental join | Sub-microsecond emit | N/A | — |
+| SPSC ring buffer throughput | 82M elem/s | N/A | — |
 
-| Capability | Description |
-|---|---|
-| **Rust as-of join kernel** | O(n+m) merge-scan with parallel chunked scan, zero-copy Arrow exchange via PyCapsule Interface |
-| **Streaming incremental joins** | Watermark-based emission with configurable lateness tolerance, batch coalescing |
-| **Lock-free infrastructure** | SPSC ring buffer (AtomicU64 Acquire/Release), HDR histogram, Bloom filter |
-| **GPU data path** | kvikio `CuFile` for GDS NVMe→GPU bypass, CUDA stream async H2D transfers |
-| **Pinned memory pool** | CUDA `cudaMallocHost` with page-aligned CPU fallback, pooled allocation |
-| **Multi-stream alignment** | Join N secondary streams concurrently via Rayon |
-| **No look-ahead bias** | Backward joins are the default — each row sees only data available at its timestamp |
-| **Three-level pruning** | Hive partition elimination → row-group statistics → column projection |
-| **Distributed replay** | File-level sharding (round-robin, symbol-affinity, time-range) across GPU ranks |
-| **Temporal feature store** | Versioned catalog, alignment-based materializer, Arrow IPC serving with symbol filtering |
-| **ML DataLoaders** | Native PyTorch `IterableDataset` and JAX iterator adapters |
-| **Cloud storage** | fsspec backends for S3, GCS, and Azure with NVMe LRU caching |
+FlowState is faster because it solves a narrower problem. Polars handles arbitrary DataFrame operations; FlowState handles exactly one thing — temporal joins on sorted timestamp data — and exploits every invariant that implies: pre-sorted merge scans, symbol-partitioned parallelism, tolerance early termination, and pre-partitioned storage that eliminates runtime hash table construction.
 
-## Quick Start
+### Capability comparison
 
-```bash
-git clone https://github.com/RyanJHamby/flowstate.git && cd flowstate
-pip install -e ".[dev]"
-
-# Build the Rust core (requires Rust toolchain + maturin)
-cd flowstate-core && maturin develop --release && cd ..
-
-# Optional: GPU support
-pip install -e ".[gpu]"   # kvikio + cupy
-```
+| Capability | FlowState | Polars | pandas | kdb+/q | DuckDB |
+|---|---|---|---|---|---|
+| **Streaming incremental joins** | Watermark + late policy | No | No | wj (windowed) | No |
+| **GPU data feeding** | kvikio GDS + CUDA streams | No | No | No | No |
+| **Multi-stream single pass** | Rayon parallel N-way | Sequential | N/A | Manual | N/A |
+| **Lock-free pipeline** | SPSC ring → join → coalesce | No | No | IPC | No |
+| **Point-in-time default** | Backward (no look-ahead) | Backward | Forward-fill | aj (backward) | Backward |
+| **Pinned memory pool** | cudaMallocHost + CPU fallback | No | No | No | No |
+| **Arrow zero-copy** | PyCapsule Interface | Yes | No (copies) | No | Yes |
+| **ML DataLoader** | PyTorch + JAX adapters | No | No | No | No |
 
 ## Usage
 
-### Align trades with quotes
+### Batch alignment: trades with quotes
 
 ```python
 from flowstate.prism.alignment import TemporalAligner
@@ -120,62 +89,16 @@ from flowstate.prism.alignment import TemporalAligner
 aligner = TemporalAligner(
     primary_type="trade",
     secondary_specs={"quote": ["bid_price", "ask_price"]},
-    tolerance_ns=5_000_000_000,
+    tolerance_ns=5_000_000_000,  # 5 second max staleness
 )
-aligner.add_data("trade", trade_table)
+aligner.add_data("trade", trade_table)   # pa.Table, int64 ns timestamps
 aligner.add_data("quote", quote_table)
 
 aligned, stats = aligner.flush()
-# Every row is point-in-time correct — no look-ahead bias
+# Every row is point-in-time correct — quote timestamp <= trade timestamp
 ```
 
-### Streaming incremental join
-
-```python
-import flowstate_core
-
-join = flowstate_core.StreamingJoin(
-    on="timestamp", by="symbol", direction="backward",
-    tolerance_ns=5_000_000_000, lateness_ns=1_000_000_000,
-)
-join.push_right(quote_batch)
-join.push_left(trade_batch)
-join.advance_watermark(current_time_ns)
-
-result = join.emit()  # rows sealed by watermark
-```
-
-### Arrow IPC I/O
-
-```python
-import flowstate_core
-
-flowstate_core.write_ipc(table, "aligned.arrow")
-table = flowstate_core.read_ipc("aligned.arrow", projection=[0, 1, 3])
-table = flowstate_core.read_ipc_time_range("aligned.arrow", on="timestamp", min_ts=t0, max_ts=t1)
-```
-
-### GPU data feeding
-
-```python
-from flowstate.prism.gpu_direct import GPUDirectReader, GPUDirectConfig
-
-reader = GPUDirectReader(GPUDirectConfig(
-    device_id=0,
-    num_streams=2,          # async H2D overlap
-    gds_task_size=4*1024*1024,
-))
-
-# Binary GDS read: NVMe → PCIe DMA → GPU VRAM (zero CPU copies)
-gpu_array = reader.read_binary_to_gpu("/data/prices.bin", dtype=np.float32)
-
-# Parquet read → async H2D transfer via CUDA streams
-batch = reader.read_batches("trades.parquet")[0]
-gpu_batch = reader.to_device(batch, stream_idx=0)
-reader.synchronize()
-```
-
-### Streaming alignment (Python)
+### Streaming alignment with watermarks
 
 ```python
 from flowstate.prism.streaming import StreamingAligner, StreamingAlignConfig
@@ -183,25 +106,49 @@ from flowstate.prism.streaming import StreamingAligner, StreamingAlignConfig
 aligner = StreamingAligner(StreamingAlignConfig(
     group_col="symbol",
     tolerance_ns=5_000_000_000,
-    lateness_ns=1_000_000_000,
+    lateness_ns=1_000_000_000,  # 1s late data tolerance
 ))
 
-for batch in live_stream:
+for batch in live_feed:
     aligner.push_left(trade_batch)
     aligner.push_right(quote_batch)
     aligner.advance_watermark(current_event_time_ns)
 
-    result = aligner.emit()  # sealed rows only
+    result = aligner.emit()  # rows sealed by watermark
     if result is not None:
         model.predict(result)
 
 final = aligner.flush()  # end-of-stream
 ```
 
+### Rust kernel directly
+
+```python
+import flowstate_core
+
+# Grouped as-of join — dispatches to Rayon parallel merge-scan
+result = flowstate_core.asof_join(
+    trades, quotes, on="timestamp", by="symbol",
+    direction="backward", tolerance_ns=5_000_000_000,
+)
+
+# Streaming join with watermark semantics
+join = flowstate_core.StreamingJoin(
+    on="timestamp", by="symbol", direction="backward",
+    tolerance_ns=5_000_000_000, lateness_ns=1_000_000_000,
+)
+join.push_left(trade_batch)
+join.push_right(quote_batch)
+join.advance_watermark(current_time_ns)
+result = join.emit()
+```
+
 ### Temporal feature store
 
 ```python
-from flowstate.store import FeatureCatalog, FeatureDefinition, FeatureMaterializer, FeatureServer
+from flowstate.store import (
+    FeatureCatalog, FeatureDefinition, FeatureMaterializer, FeatureServer,
+)
 
 catalog = FeatureCatalog("/data/features/catalog.json")
 catalog.register(FeatureDefinition(
@@ -215,56 +162,116 @@ catalog.register(FeatureDefinition(
 materializer = FeatureMaterializer(catalog=catalog, output_dir="/data/features/mat")
 materializer.add_stream("trade", trade_table)
 materializer.add_stream("quote", quote_table)
-stats = materializer.materialize_all()
+materializer.materialize_all()
 
 server = FeatureServer(catalog=catalog, data_dir="/data/features/mat")
 table = server.get_feature("trade_with_quote", symbols=["AAPL"])
 ```
 
-## Rust Core
+### GPU data feeding
 
-6,400 lines of Rust, 132 tests (121 unit + 11 proptest). Exposed to Python via PyO3 + maturin.
+```python
+from flowstate.prism.gpu_direct import GPUDirectReader, GPUDirectConfig
+
+reader = GPUDirectReader(GPUDirectConfig(
+    device_id=0,
+    num_streams=2,          # async H2D overlap
+    gds_task_size=4*1024*1024,
+))
+
+# NVMe → PCIe DMA → GPU VRAM (zero CPU copies via kvikio GDS)
+gpu_array = reader.read_binary_to_gpu("/data/prices.bin", dtype=np.float32)
+
+# Arrow IPC I/O with column projection and temporal range filtering
+table = flowstate_core.read_ipc("aligned.arrow", projection=[0, 1, 3])
+table = flowstate_core.read_ipc_time_range("aligned.arrow", on="timestamp", min_ts=t0, max_ts=t1)
+```
+
+## Project Structure
 
 ```
-flowstate-core/src/
-├── lib.rs              # PyO3 module: joins, streaming, IPC bindings
-├── asof/
-│   ├── scan.rs         # O(n+m) merge-scan kernels (backward/forward/nearest)
-│   ├── parallel_scan.rs# Chunked parallel scan, binary-search cursor starts
-│   ├── join.rs         # Orchestration: sort-detect, ahash grouping, Rayon dispatch
-│   ├── gather.rs       # Parallel column gather via Arrow take()
-│   ├── multi.rs        # Multi-stream parallel alignment
-│   ├── streaming.rs    # Watermark-based streaming join (~900 lines)
-│   └── config.rs       # Direction enum + config struct
-├── ipc.rs              # Arrow IPC read/write/scan, column projection, time-range filter
-├── spsc.rs             # Lock-free SPSC ring buffer, AtomicU64 Acquire/Release
-├── pipeline.rs         # Streaming pipeline: SPSC → join → coalesce → output ring
-├── coalesce.rs         # Adaptive batch coalescer, target-row flushing
-├── hdr.rs              # HDR histogram, log-linear bucketing, CAS min/max
-├── bloom.rs            # Bloom filter, double-hashing, auto-tuned FPR
-├── pool.rs             # Slab buffer pool, auto-return, zero-on-drop
-└── pinned.rs           # CUDA pinned memory allocator, page-aligned CPU fallback
+FlowState/
+├── flowstate-core/           # Rust crate — 6,400 lines, 132 tests
+│   └── src/
+│       ├── lib.rs            # PyO3 bindings: joins, streaming, IPC
+│       ├── asof/
+│       │   ├── scan.rs       # O(n+m) merge-scan kernels (backward/forward/nearest)
+│       │   ├── parallel_scan.rs  # Chunked parallel scan, binary-search cursor starts
+│       │   ├── join.rs       # Orchestration: sort-detect, ahash grouping, Rayon dispatch
+│       │   ├── gather.rs     # Parallel column gather via Arrow take()
+│       │   ├── multi.rs      # Multi-stream parallel alignment
+│       │   ├── streaming.rs  # Watermark-based streaming join (900 lines)
+│       │   └── config.rs     # Direction enum, config struct
+│       ├── ipc.rs            # Arrow IPC read/write/scan, projection, time-range filter
+│       ├── spsc.rs           # Lock-free SPSC ring buffer, AtomicU64, cache-line padded
+│       ├── pipeline.rs       # Streaming pipeline: SPSC → join → coalesce → output
+│       ├── coalesce.rs       # Adaptive batch coalescer, target-row flushing
+│       ├── hdr.rs            # HDR histogram, log-linear bucketing, CAS min/max
+│       ├── bloom.rs          # Bloom filter, double-hashing, auto-tuned FPR
+│       ├── pool.rs           # Slab buffer pool, auto-return, zero-on-drop
+│       └── pinned.rs         # CUDA pinned memory allocator, page-aligned fallback
+│
+├── src/flowstate/            # Python package — 7,800 lines
+│   ├── prism/                # Query, alignment, data feeding
+│   │   ├── alignment.py      # TemporalAligner, AlignmentSpec, Rust/Python dual backend
+│   │   ├── streaming.py      # StreamingAligner with watermark emission
+│   │   ├── replay.py         # Replay engine with 3-level partition pruning
+│   │   ├── gpu_direct.py     # kvikio GDS reads, CUDA stream H2D transfers
+│   │   ├── pinned_buffer.py  # CUDA pinned memory pool with CPU fallback
+│   │   ├── prefetcher.py     # Double-buffered async prefetch pipeline
+│   │   ├── dataloader.py     # PyTorch IterableDataset, JAX iterator
+│   │   ├── distributed.py    # Multi-rank replay with NCCL barrier sync
+│   │   └── shard.py          # File-level sharding strategies
+│   ├── store/                # Temporal feature store
+│   │   ├── catalog.py        # Versioned feature definitions, dependency DAG
+│   │   ├── materializer.py   # Alignment-based materialization to Arrow IPC
+│   │   └── server.py         # Feature serving with symbol filtering
+│   ├── storage/              # Partitioned storage, caching, cloud
+│   │   ├── partitioning.py   # Hive partitioning with xxhash bucketing
+│   │   ├── writer.py         # Partitioned Parquet writer (zstd)
+│   │   ├── cache.py          # NVMe LRU cache tier
+│   │   └── object_store.py   # fsspec backends (S3, GCS, Azure)
+│   ├── schema/               # Arrow schemas, validation, normalization
+│   └── features/             # Microstructure feature library
+│
+├── tests/                    # 636 Python tests — 8,100 lines
+├── benchmarks/               # Full-stack benchmark suite
+├── .github/workflows/ci.yml  # CI: Python 3.11–3.13, Rust, Criterion, integration
+└── DESIGN.md                 # System architecture and design decisions
 ```
 
 ## Testing
 
 ```bash
 python -m pytest tests/ -v                              # 636 Python tests
-cd flowstate-core && cargo test --no-default-features   # 132 Rust tests
+cd flowstate-core && cargo test --no-default-features   # 132 Rust tests (121 unit + 11 proptest)
 cargo bench --no-default-features                       # Criterion benchmarks
+python benchmarks/bench_full_suite.py                   # Full-stack Python benchmarks
 ```
 
-## Roadmap
+Test coverage includes:
+- **Correctness:** 11 proptest property-based tests verify Rust kernels against reference implementations across random inputs
+- **Integration:** 14 end-to-end tests validate the full pipeline (replay → align → materialize → serve)
+- **Point-in-time:** Dedicated tests verify no look-ahead bias in backward joins and correct look-ahead in forward joins
+- **Streaming parity:** Tests verify streaming alignment produces identical results to batch alignment
 
-- [x] Rust as-of join kernel — O(n+m) merge-scan, parallel chunked scan, ahash grouping
-- [x] Streaming alignment — watermark-based emission with configurable lateness
-- [x] Arrow IPC scanner — column projection, temporal range filtering, parallel multi-file
-- [x] Lock-free infrastructure — SPSC ring buffer, HDR histogram, Bloom filter, buffer pool
-- [x] Streaming pipeline — SPSC → join → coalesce → output, HdrHistogram latency tracking
-- [x] GPU data path — kvikio GDS reads, CUDA stream async H2D, pinned memory pool
-- [x] Distributed replay — file-level sharding across ranks with NCCL barrier sync
-- [x] Streaming Python aligner — watermark emission, late data policy, Rust/Python dual backend
-- [x] Temporal feature store — catalog, materialization engine, Arrow IPC serving
+## Quick Start
+
+```bash
+git clone https://github.com/RyanJHamby/flowstate.git && cd flowstate
+pip install -e ".[dev]"
+
+# Build the Rust core (requires Rust toolchain + maturin)
+cd flowstate-core && maturin develop --release && cd ..
+
+# Optional: GPU support (kvikio + cupy)
+pip install -e ".[gpu]"
+
+# Verify
+python -m pytest tests/ -v
+```
+
+The Rust kernel is a transparent accelerator. If `flowstate_core` is not installed, all operations fall back to a pure Python implementation using NumPy and bisect — same API, same correctness guarantees, lower throughput.
 
 ## License
 
