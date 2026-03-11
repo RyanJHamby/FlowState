@@ -188,7 +188,10 @@ pub fn scan_ipc_files_parallel(
         all_batches.extend(batches);
     }
 
-    Ok((all_batches, schema.unwrap()))
+    let schema = schema.ok_or_else(|| {
+        ArrowError::InvalidArgumentError("No schema found across scanned IPC files".into())
+    })?;
+    Ok((all_batches, schema))
 }
 
 // ---------------------------------------------------------------------------

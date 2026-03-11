@@ -1,8 +1,13 @@
-//! FlowState Core: high-performance temporal join engine.
+//! FlowState Core — Rust-accelerated temporal join engine for financial data.
 //!
-//! Provides Rust-accelerated as-of joins exposed to Python via PyO3.
-//! Accepts and returns PyArrow tables through the Arrow C Data Interface
-//! for zero-copy data exchange.
+//! Core capabilities:
+//! - **O(n+m) merge-scan** as-of joins (backward, forward, nearest) with optional
+//!   tolerance windows and group-by keys.
+//! - **Streaming watermark joins** for incremental, out-of-order event processing.
+//! - **Multi-stream parallel alignment** of secondary timeseries onto a primary timeline.
+//! - **Arrow IPC I/O** with projection pushdown and timestamp-range filtering.
+//! - **PyO3 bindings** exposing all functionality to Python via the Arrow PyCapsule
+//!   Interface for zero-copy data exchange.
 
 pub mod asof;
 pub mod bloom;
@@ -247,6 +252,7 @@ mod python {
             })
         }
 
+        /// Ingest a right-side (reference) table into the join buffer.
         fn push_right(&mut self, table: PyTable) -> PyResult<()> {
             let (batches, schema) = table.into_inner();
             if self.right_schema.is_none() { self.right_schema = Some(schema); }
@@ -257,6 +263,7 @@ mod python {
             Ok(())
         }
 
+        /// Ingest a left-side (probe) table whose rows will be matched against buffered right data.
         fn push_left(&mut self, table: PyTable) -> PyResult<()> {
             let (batches, schema) = table.into_inner();
             if self.left_schema.is_none() { self.left_schema = Some(schema); }
@@ -267,10 +274,12 @@ mod python {
             Ok(())
         }
 
+        /// Advance the event-time watermark, allowing buffered left rows up to this point to be joined.
         fn advance_watermark(&mut self, watermark_ns: i64) {
             self.inner.advance_watermark(watermark_ns);
         }
 
+        /// Emit joined rows that are finalized by the current watermark, or `None` if nothing is ready.
         fn emit<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
             let left_schema = self.left_schema.as_ref()
                 .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("No left data pushed yet"))?;
@@ -290,6 +299,7 @@ mod python {
             }
         }
 
+        /// Flush all remaining buffered left rows, joining with best-available right data.
         fn flush<'py>(&mut self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyAny>>> {
             let left_schema = self.left_schema.as_ref()
                 .ok_or_else(|| pyo3::exceptions::PyRuntimeError::new_err("No left data pushed yet"))?;
@@ -320,6 +330,7 @@ mod python {
         #[getter]
         fn total_right_received(&self) -> usize { self.inner.total_right_received }
 
+        /// Discard right-side rows with timestamps before `timestamp_ns` to free memory.
         fn prune_right_before(&mut self, timestamp_ns: i64) {
             self.inner.prune_right_before(timestamp_ns);
         }

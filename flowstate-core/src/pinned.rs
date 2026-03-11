@@ -112,7 +112,7 @@ impl PinnedBuffer {
         let layout = Layout::from_size_align(size, Self::page_size())
             .map_err(|_| PinnedAllocError::LayoutError)?;
         Ok(Self {
-            ptr: NonNull::new(ptr as *mut u8).unwrap(),
+            ptr: NonNull::new(ptr as *mut u8).ok_or(PinnedAllocError::AllocationFailed)?,
             layout,
             len: size,
             backend: PinnedBackend::Cuda,

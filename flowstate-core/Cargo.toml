@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "High-performance temporal join engine for financial data"
+repository = "https://github.com/RyanJHamby/flowstate"
+homepage = "https://github.com/RyanJHamby/flowstate"
+keywords = ["arrow", "asof-join", "temporal", "timeseries", "finance"]
+categories = ["algorithms", "data-structures", "science"]
 
 [lib]
 name = "flowstate_core"

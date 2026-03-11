@@ -59,7 +59,11 @@ pub fn align_streams_impl(
     for result in join_results {
         let batches = result?;
         if !batches.is_empty() {
-            joined_tables.push(batches.into_iter().next().unwrap());
+            joined_tables.push(batches.into_iter().next().ok_or_else(|| {
+                ArrowError::InvalidArgumentError(
+                    "Join produced non-empty Vec but first element missing".into(),
+                )
+            })?);
         }
     }
 
