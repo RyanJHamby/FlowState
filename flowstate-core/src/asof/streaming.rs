@@ -623,9 +623,13 @@ impl StreamingAsOfJoin {
         left_schema: &Schema,
         right_schema: &Schema,
     ) -> Result<Option<RecordBatch>, ArrowError> {
-        // Set watermark to max to seal everything
+        // Temporarily override lateness so seal_threshold = i64::MAX
+        let saved_lateness = self.lateness_ns;
+        self.lateness_ns = 0;
         self.watermark = i64::MAX;
-        self.emit(left_schema, right_schema)
+        let result = self.emit(left_schema, right_schema);
+        self.lateness_ns = saved_lateness;
+        result
     }
 
     /// Number of pending (unsealed) left rows.
