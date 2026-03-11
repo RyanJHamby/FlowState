@@ -260,6 +260,12 @@ class ReplayEngine:
     # Single-file replay: row-group pruning + streaming read
     # ------------------------------------------------------------------
 
+    def read_file_batches(
+        self, path: Path, replay_filter: ReplayFilter | None = None,
+    ) -> Iterator[pa.RecordBatch]:
+        """Stream batches from a single Parquet file (public API for distributed replay)."""
+        return self._replay_file(path, replay_filter)
+
     def _replay_file(
         self, path: Path, replay_filter: ReplayFilter | None
     ) -> Iterator[pa.RecordBatch]:
