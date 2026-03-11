@@ -255,11 +255,7 @@ class GPUDirectReader:
         """Read via kvikio.CuFile — GPUDirect Storage path."""
         try:
             file_size = path.stat().st_size
-            if count == -1:
-                nbytes = file_size - file_offset
-            else:
-                nbytes = count * dtype.itemsize
-
+            nbytes = file_size - file_offset if count == -1 else count * dtype.itemsize
             n_elements = nbytes // dtype.itemsize
             gpu_buf = cp.empty(n_elements, dtype=dtype)
 
@@ -395,11 +391,7 @@ class GPUDirectReader:
             return None, data
 
         file_size = path.stat().st_size
-        if count == -1:
-            nbytes = file_size - file_offset
-        else:
-            nbytes = count * np_dtype.itemsize
-
+        nbytes = file_size - file_offset if count == -1 else count * np_dtype.itemsize
         n_elements = nbytes // np_dtype.itemsize
         gpu_buf = cp.empty(n_elements, dtype=np_dtype)
 
