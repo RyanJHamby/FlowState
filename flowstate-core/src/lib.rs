@@ -5,7 +5,13 @@
 //! for zero-copy data exchange.
 
 pub mod asof;
+pub mod bloom;
+pub mod coalesce;
+pub mod hdr;
 pub mod ipc;
+pub mod pinned;
+pub mod pipeline;
+pub mod pool;
 pub mod spsc;
 
 // ---------------------------------------------------------------------------

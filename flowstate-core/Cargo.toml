@@ -12,6 +12,7 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = ["python"]
 python = ["pyo3", "pyo3-arrow"]
+cuda = []
 
 [dependencies]
 pyo3 = { version = "0.28", features = ["extension-module"], optional = true }
