@@ -249,7 +249,7 @@ flowstate-core/src/
 ## Testing
 
 ```bash
-python -m pytest tests/ -v                              # 562 Python tests
+python -m pytest tests/ -v                              # 622 Python tests
 cd flowstate-core && cargo test --no-default-features   # 132 Rust tests
 cargo bench --no-default-features                       # Criterion benchmarks
 ```
