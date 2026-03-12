@@ -234,9 +234,15 @@ FlowState/
 │   ├── schema/               # Arrow schemas, validation, normalization
 │   └── features/             # Microstructure feature library
 │
+├── orderbook/                # C++ limit order book — header-only, 25 Catch2 tests
+│   └── include/orderbook/
+│       ├── types.h           # Integer-tick prices, order/fill structs
+│       ├── price_level.h     # FIFO queue per price (std::deque, not std::list)
+│       └── order_book.h      # Array-indexed levels, O(1) BBO, FIFO matching
+│
 ├── tests/                    # 636 Python tests — 8,100 lines
 ├── benchmarks/               # Full-stack benchmark suite
-├── .github/workflows/ci.yml  # CI: Python 3.11–3.13, Rust, Criterion, integration
+├── .github/workflows/ci.yml  # CI: Python 3.11–3.13, Rust, C++, Criterion, integration
 └── DESIGN.md                 # System architecture and design decisions
 ```
 

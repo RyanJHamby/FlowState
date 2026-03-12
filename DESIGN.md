@@ -215,7 +215,51 @@ Each stage runs on its own thread. The `BatchCoalescer` accumulates small output
 
 ---
 
-## 8. Temporal Feature Store
+## 8. Limit Order Book (C++)
+
+The `orderbook/` directory contains a C++ limit order book implementation that demonstrates the data structures underlying exchange matching engines — the systems that produce the market data FlowState aligns.
+
+### 8.1 Why not `std::map<double, PriceLevel>`
+
+The naive approach has two fundamental problems:
+
+1. **Floating-point equality is unreliable.** IEEE 754 rounding means `1.01 + 1.01 + 1.01 != 3.03` on most platforms. Using `double` as a map key requires epsilon-based comparison, which breaks `std::map`'s strict weak ordering requirement — undefined behavior.
+
+2. **Red-black tree cache locality is poor.** `std::map` nodes are heap-allocated and pointer-chased. Walking the bid or ask side to find the best price touches scattered memory locations, thrashing L1/L2 caches.
+
+### 8.2 Integer-tick array-indexed design
+
+All prices are represented as `int64_t` ticks: `price_ticks = round(price / tick_size)`. The book uses a flat `std::vector<PriceLevel>` indexed by `(price_ticks - base_price)`, giving:
+
+- **O(1) price level lookup** — direct array index, no tree traversal
+- **O(1) BBO query** — best bid/ask tracked as integer indices, updated on every mutation
+- **Cache-friendly iteration** — depth snapshots walk a contiguous array
+
+The tradeoff is memory: a $100 price range at $0.01 ticks requires 10,000 levels × ~100 bytes ≈ 1 MB. Negligible on modern hardware.
+
+### 8.3 Price level: `std::deque`, not `std::list`
+
+Each price level maintains a FIFO queue of resting orders (matching priority used by CME, NYSE, and most major exchanges). The queue uses `std::deque` rather than `std::list` — deque stores elements in contiguous chunks (~512 bytes) for sequential access during matching, while list nodes are scattered across the heap.
+
+### 8.4 Order lifecycle
+
+```
+add_order(Order) → aggressive matching at crossing prices
+                 → remaining quantity rests in book
+cancel_order(id) → O(1) lookup via unordered_map → remove from price level
+bbo()            → O(1) read of tracked best bid/ask indices
+bid_depth(n)     → walk N non-empty levels from best bid downward
+```
+
+Self-trade prevention, risk checks, and order throttling are deliberately excluded — those are gateway concerns, not matching engine concerns. The implementation focuses on the core price-time priority matching algorithm.
+
+### 8.5 Test coverage
+
+25 Catch2 test cases covering: FIFO ordering, cancel, multi-level sweep, partial fills, BBO tracking, depth snapshots, statistics, self-trade, edge cases.
+
+---
+
+## 9. Temporal Feature Store
 
 The feature store provides a catalog → materialize → serve workflow for managing aligned feature sets:
 
@@ -225,7 +269,7 @@ The feature store provides a catalog → materialize → serve workflow for mana
 
 ---
 
-## 9. Correctness Guarantees
+## 10. Correctness Guarantees
 
 - **No look-ahead bias by default.** Backward joins are the default direction. Every matched right-side timestamp is `<=` the left-side timestamp. This is verified by dedicated integration tests.
 - **Property-based testing.** 11 proptest tests in Rust generate random sorted timestamp arrays and verify kernel output against a brute-force O(n*m) reference implementation. Properties tested include: backward match is rightmost, forward match is leftmost, nearest minimizes distance, tolerance is enforced, output length equals left length.
@@ -234,7 +278,7 @@ The feature store provides a catalog → materialize → serve workflow for mana
 
 ---
 
-## 10. Key Design Decisions
+## 11. Key Design Decisions
 
 | Decision | Rationale |
 |---|---|
@@ -250,7 +294,7 @@ The feature store provides a catalog → materialize → serve workflow for mana
 
 ---
 
-## 11. Test Matrix
+## 12. Test Matrix
 
 | Layer | Count | Tool | What it covers |
 |---|---|---|---|
@@ -258,5 +302,7 @@ The feature store provides a catalog → materialize → serve workflow for mana
 | Rust property tests | 11 | proptest | Random-input correctness against brute-force reference for all three join directions |
 | Python unit tests | 611 | pytest | All Python modules: alignment, replay, storage, streaming, GPU, feature store, schemas, microstructure |
 | Integration tests | 14 | pytest | End-to-end pipeline, point-in-time correctness, streaming-batch parity, cache, partitioning, distributed replay |
+| C++ unit tests | 25 | Catch2 | Order book: FIFO matching, cancel, multi-level sweep, BBO, depth, statistics, edge cases |
 | Criterion benchmarks | 8 | `cargo bench` | Rust kernel throughput: sequential vs parallel, tolerance, all directions, SPSC ring |
+| C++ benchmarks | 4 | custom | Order book: add throughput, add+cancel, aggressive matching, BBO lookup |
 | Python benchmarks | 10 | bench_full_suite.py | Full-stack: as-of join, multi-stream, streaming, IPC, replay, alignment, feature store, cache, partitioning, prefetcher |
