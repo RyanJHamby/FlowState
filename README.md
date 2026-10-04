@@ -87,11 +87,12 @@ globally sorted by timestamp, median of 5 runs after 2 warmups (`--runs 5`), dat
 engine's output is checked against Polars before timing.
 Measured 2026-10-04 on **Apple M4 (10 cores, 32 GB)**, macOS 26.6, Python 3.14.3,
 Polars 1.38.1, pandas 3.0.6, pyarrow 23.0.1, FlowState 0.1.0 (release build).
+Raw output and machine info: [`results/2026-10-04-1729-asof-join-vs-polars-pandas`](results/2026-10-04-1729-asof-join-vs-polars-pandas/).
 
 | Left × right rows | Polars | **FlowState** | pandas `merge_asof` |
 |---|---|---|---|
-| 1M × 500K | **9.0 ms** | 13.1 ms | 74.5 ms |
-| 10M × 5M | **122.5 ms** | 183.1 ms | 759.5 ms |
+| 1M × 500K | **8.7 ms** | 12.3 ms | 74.8 ms |
+| 10M × 5M | **128.7 ms** | 182.1 ms | 756.8 ms |
 
 **On this workload Polars is about 1.4x faster than FlowState** and both are 6–8x faster than
 pandas. FlowState's value is not raw join speed against Polars: it is the pieces around the join
