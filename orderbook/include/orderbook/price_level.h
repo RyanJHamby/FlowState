@@ -3,6 +3,7 @@
 #include "orderbook/types.h"
 
 #include <deque>
+#include <vector>
 
 namespace orderbook {
 
