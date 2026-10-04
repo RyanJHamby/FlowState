@@ -86,26 +86,40 @@ jobs:
           python -c "import flowstate_core; print('rust kernel ok')"
           python examples/try_it.py
 
-  publish:
+  # PyPI allows only one pending/trusted publisher per (repo, workflow, environment),
+  # so each package publishes from its own GitHub environment.
+  publish-core:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [core-wheels, core-sdist, python-dist, smoke-test]
     runs-on: ubuntu-latest
-    environment: pypi            # configure PyPI trusted publishers for both projects
+    environment: pypi-core       # trusted publisher for flowstate-asof-core
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { pattern: "wheels-core-*", path: dist-core, merge-multiple: true }
+      - uses: actions/download-artifact@v4
+        with: { name: sdist-core, path: dist-core }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with: { packages-dir: dist-core }
+
+  # The kernel must be on PyPI before the package that depends on it.
+  publish-main:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [publish-core]
+    runs-on: ubuntu-latest
+    environment: pypi            # trusted publisher for flowstate-asof
     permissions:
       id-token: write            # PyPI trusted publishing (no API token stored)
       contents: write            # GitHub release
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
-        with: { path: artifacts, merge-multiple: true }
-      - name: Split by project
-        run: |
-          mkdir -p dist-core dist-main
-          mv artifacts/flowstate_asof_core-* dist-core/
-          mv artifacts/flowstate_asof-* dist-main/
-      # The kernel must be on PyPI before the package that depends on it.
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with: { packages-dir: dist-core }
+        with: { name: dist-python, path: dist-main }
+      - uses: actions/download-artifact@v4
+        with: { pattern: "wheels-core-*", path: dist-core, merge-multiple: true }
+      - uses: actions/download-artifact@v4
+        with: { name: sdist-core, path: dist-core }
       - uses: pypa/gh-action-pypi-publish@release/v1
         with: { packages-dir: dist-main }
       - name: GitHub release from CHANGELOG
