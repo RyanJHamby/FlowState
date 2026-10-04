@@ -322,3 +322,11 @@ The Rust kernel is a transparent accelerator. If `flowstate_core` is not importa
 ## License
 
 Apache License 2.0 — see [LICENSE](LICENSE) for details.
+
+## How this was built
+
+Design, experiments, and analysis are mine. I used AI coding assistants for
+parts of the implementation, tests, and documentation, and reviewed every change.
+The [engineering journal](docs/journal.md) records decisions and dead ends as
+they happened, and [`results/`](results/) holds the raw output behind every
+number quoted here.
