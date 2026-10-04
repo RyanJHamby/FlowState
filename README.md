@@ -28,7 +28,7 @@ def side(m, col):  # m rows, sorted int64-ns timestamps over ~1000 s, 3 symbols
                      "symbol": rng.choice(["AAPL", "MSFT", "NVDA"], m), col: rng.normal(100, 1, m)})
 trades, quotes = side(n, "price"), side(4 * n, "bid")
 joined, stats = as_of_join(trades, quotes, config=AsOfConfig(tolerance_ns=5 * 10**9))
-print(joined.slice(0, 3).to_pylist()); print(stats)  # each trade sees only quotes at or before it
+print(joined.slice(0, 3).select(["symbol", "price", "bid"]).to_pylist()); print(stats)  # each trade sees only quotes at or before it
 ```
 
 Also in [`examples/try_it.py`](examples/try_it.py). (`flowstate-asof` is the PyPI name; the import
