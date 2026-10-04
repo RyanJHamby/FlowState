@@ -5,11 +5,34 @@
 
 <p align="center">
   <a href="https://github.com/RyanJHamby/flowstate/actions/workflows/ci.yml"><img src="https://github.com/RyanJHamby/flowstate/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://pypi.org/project/flowstate-asof/"><img src="https://img.shields.io/pypi/v/flowstate-asof.svg" alt="PyPI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License"></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.11%2B-blue.svg" alt="Python"></a>
 </p>
 
 ---
+
+## Try it
+
+```bash
+pip install flowstate-asof        # imports as `flowstate`; includes the Rust kernel wheel
+```
+
+```python
+import numpy as np, pyarrow as pa
+from flowstate.prism.alignment import AsOfConfig, as_of_join
+
+rng, n, ns = np.random.default_rng(0), 100_000, pa.timestamp("ns", tz="UTC")
+def side(m, col):  # m rows, sorted int64-ns timestamps over ~1000 s, 3 symbols
+    return pa.table({"timestamp": pa.array(np.sort(rng.integers(0, 10**12, m)), ns),
+                     "symbol": rng.choice(["AAPL", "MSFT", "NVDA"], m), col: rng.normal(100, 1, m)})
+trades, quotes = side(n, "price"), side(4 * n, "bid")
+joined, stats = as_of_join(trades, quotes, config=AsOfConfig(tolerance_ns=5 * 10**9))
+print(joined.slice(0, 3).to_pylist()); print(stats)  # each trade sees only quotes at or before it
+```
+
+Also in [`examples/try_it.py`](examples/try_it.py). (`flowstate-asof` is the PyPI name; the import
+is `flowstate`. The unrelated `flowstate` project on PyPI is a different package.)
 
 ## Problem
 
@@ -17,7 +40,7 @@ Every quantitative trading firm builds the same internal infrastructure: join he
 
 - **No look-ahead bias.** A trade at time `T` must only see quotes at time `<= T`. Violating this invalidates every backtest downstream.
 - **Nanosecond precision.** Microsecond timestamps lose ordering information in high-frequency data. Timestamps are `int64` nanoseconds, not floats.
-- **Hundreds of symbols, billions of rows.** pandas falls over at 10M rows. Polars handles it but treats as-of joins as one operation among hundreds — not the primary design target.
+- **Hundreds of symbols, billions of rows.** A single in-memory as-of join is fine in pandas or Polars at 10M rows (see [Performance](#performance)). The target here is pipelines that align many streams over partitioned data too large for one in-memory frame.
 - **Streaming and batch.** Research needs batch replay over historical data. Production needs incremental alignment on live feeds with watermark semantics.
 - **GPU-ready tensors.** The output goes into PyTorch or JAX. Every CPU copy between alignment and the GPU is wasted latency.
 
@@ -53,31 +76,42 @@ FlowState solves this pipeline end-to-end: partitioned storage with three-level 
 
 ## Performance
 
-Benchmarked on 1M left × 500K right rows, 1,000 symbols, Apple M-series. Measured against Polars 1.x, the fastest general-purpose option.
+Reproduce with one command (prints hardware, versions and dataset alongside the timings):
 
-| Operation | FlowState | Polars | Speedup |
+```bash
+pip install flowstate-asof polars pandas && python benchmarks/reproduce.py --pandas-scale --runs 5
+```
+
+Backward grouped as-of join, 1,000 symbols, synthetic random-walk quotes (seeds 42/99), inputs
+globally sorted by timestamp, median of 5 runs after 2 warmups (`--runs 5`), data generation excluded. Every
+engine's output is checked against Polars before timing.
+Measured 2026-10-04 on **Apple M4 (10 cores, 32 GB)**, macOS 26.6, Python 3.14.3,
+Polars 1.38.1, pandas 3.0.6, pyarrow 23.0.1, FlowState 0.1.0 (release build).
+
+| Left × right rows | Polars | **FlowState** | pandas `merge_asof` |
 |---|---|---|---|
-| Grouped as-of join (1M rows, 1K symbols) | **10 ms** | 18 ms | 1.8x |
-| Ungrouped as-of join (1M rows) | **4 ms** | 7 ms | 1.8x |
-| Multi-stream alignment (4 streams) | **42 ms** | 42 ms | Parity |
-| Multi-stream alignment (8 streams) | **85 ms** | 100 ms | 1.2x |
-| Streaming incremental join | Sub-microsecond emit | N/A | — |
-| SPSC ring buffer throughput | 82M elem/s | N/A | — |
+| 1M × 500K | **9.0 ms** | 13.1 ms | 74.5 ms |
+| 10M × 5M | **122.5 ms** | 183.1 ms | 759.5 ms |
 
-FlowState is faster because it solves a narrower problem. Polars handles arbitrary DataFrame operations; FlowState handles exactly one thing — temporal joins on sorted timestamp data — and exploits every invariant that implies: pre-sorted merge scans, symbol-partitioned parallelism, tolerance early termination, and pre-partitioned storage that eliminates runtime hash table construction.
+**On this workload Polars is about 1.4x faster than FlowState** and both are 6–8x faster than
+pandas. FlowState's value is not raw join speed against Polars: it is the pieces around the join
+(watermark streaming alignment, the SPSC streaming pipeline, partitioned replay and the temporal
+feature store). Earlier README numbers claiming a 1.8x lead over Polars could not be reproduced
+and were removed. Ungrouped joins, multi-stream alignment and DuckDB (`--duckdb`; its `ASOF JOIN`
+did not finish at 1M × 1K symbols in our run) are not part of the headline table. Rust
+micro-benchmarks live in `flowstate-core/benches` (`cargo bench --no-default-features`).
 
-### Capability comparison
+### What is implemented, and how well it is tested
 
-| Capability | FlowState | Polars | pandas | kdb+/q | DuckDB |
-|---|---|---|---|---|---|
-| **Streaming incremental joins** | Watermark + late policy | No | No | wj (windowed) | No |
-| **GPU data feeding** | kvikio GDS + CUDA streams | No | No | No | No |
-| **Multi-stream single pass** | Rayon parallel N-way | Sequential | N/A | Manual | N/A |
-| **Lock-free pipeline** | SPSC ring → join → coalesce | No | No | IPC | No |
-| **Point-in-time default** | Backward (no look-ahead) | Backward | Forward-fill | aj (backward) | Backward |
-| **Pinned memory pool** | cudaMallocHost + CPU fallback | No | No | No | No |
-| **Arrow zero-copy** | PyCapsule Interface | Yes | No (copies) | No | Yes |
-| **ML DataLoader** | PyTorch + JAX adapters | No | No | No | No |
+| Capability | Status |
+|---|---|
+| Backward / forward / nearest as-of join, tolerance, per-symbol grouping | Rust kernel, property-tested against a reference implementation |
+| Multi-stream alignment (N secondary streams, one pass) | Rust + Rayon, tested; no published speed comparison |
+| Streaming incremental join with watermark and late-data policy | Rust, tested for parity with batch alignment |
+| Lock-free SPSC pipeline (ring → join → coalesce) | Rust, unit-tested |
+| Partitioned Parquet storage, NVMe cache, S3/GCS/Azure via fsspec | Tested locally; cloud backends not exercised against real buckets in CI |
+| PyTorch / JAX data adapters | Tested on CPU |
+| **GPU feeding: kvikio GDS, CUDA streams, pinned memory** | **Not yet tested on a real GPU.** The test suite exercises the CPU fallback paths only. Treat the GPUDirect/CUDA code as untested. |
 
 ## Usage
 
@@ -170,6 +204,9 @@ table = server.get_feature("trade_with_quote", symbols=["AAPL"])
 
 ### GPU data feeding
 
+> **Status: untested on real hardware.** This path (kvikio GDS, CUDA streams, pinned memory) has
+> only been exercised through its CPU fallbacks. No GPU benchmark numbers are claimed.
+
 ```python
 from flowstate.prism.gpu_direct import GPUDirectReader, GPUDirectConfig
 
@@ -240,7 +277,7 @@ FlowState/
 │       ├── price_level.h     # FIFO queue per price (std::deque, not std::list)
 │       └── order_book.h      # Array-indexed levels, O(1) BBO, FIFO matching
 │
-├── tests/                    # 636 Python tests — 8,100 lines
+├── tests/                    # 637 Python tests — 8,100 lines
 ├── benchmarks/               # Full-stack benchmark suite
 ├── .github/workflows/ci.yml  # CI: Python 3.11–3.13, Rust, C++, Criterion, integration
 └── DESIGN.md                 # System architecture and design decisions
@@ -249,9 +286,10 @@ FlowState/
 ## Testing
 
 ```bash
-python -m pytest tests/ -v                              # 636 Python tests
+python -m pytest tests/ -v                              # 637 Python tests
 cd flowstate-core && cargo test --no-default-features   # 132 Rust tests (121 unit + 11 proptest)
 cargo bench --no-default-features                       # Criterion benchmarks
+python benchmarks/reproduce.py                          # Reproducible join benchmark
 python benchmarks/bench_full_suite.py                   # Full-stack Python benchmarks
 ```
 
@@ -264,11 +302,13 @@ Test coverage includes:
 ## Quick Start
 
 ```bash
-git clone https://github.com/RyanJHamby/flowstate.git && cd flowstate
-pip install -e ".[dev]"
+pip install flowstate-asof            # end users: prebuilt wheels, no Rust toolchain needed
 
-# Build the Rust core (requires Rust toolchain + maturin)
-cd flowstate-core && maturin develop --release && cd ..
+# Contributors:
+git clone https://github.com/RyanJHamby/flowstate.git && cd flowstate
+python -m venv .venv && source .venv/bin/activate
+pip install maturin && (cd flowstate-core && maturin develop --release)   # needs a Rust toolchain
+pip install -e ".[dev]"
 
 # Optional: GPU support (kvikio + cupy)
 pip install -e ".[gpu]"
@@ -277,7 +317,7 @@ pip install -e ".[gpu]"
 python -m pytest tests/ -v
 ```
 
-The Rust kernel is a transparent accelerator. If `flowstate_core` is not installed, all operations fall back to a pure Python implementation using NumPy and bisect — same API, same correctness guarantees, lower throughput.
+The Rust kernel is a transparent accelerator. If `flowstate_core` is not importable, all operations fall back to a pure Python implementation using NumPy and bisect — same API, same correctness guarantees, lower throughput.
 
 ## License
 

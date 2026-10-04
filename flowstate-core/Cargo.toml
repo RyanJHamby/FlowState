@@ -19,7 +19,7 @@ python = ["pyo3", "pyo3-arrow"]
 cuda = []
 
 [dependencies]
-pyo3 = { version = "0.28", features = ["extension-module"], optional = true }
+pyo3 = { version = "0.28", features = ["extension-module", "abi3-py311"], optional = true }
 pyo3-arrow = { version = "0.17", optional = true }
 arrow-array = "58"
 arrow-schema = "58"

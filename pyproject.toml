@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "flowstate"
+name = "flowstate-asof"
 dynamic = ["version"]
 description = "Temporal alignment engine and GPU-accelerated data feeding for quantitative ML"
 readme = "README.md"
@@ -28,7 +28,7 @@ keywords = [
     "time-series",
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Intended Audience :: Financial and Insurance Industry",
     "Intended Audience :: Science/Research",
@@ -48,6 +48,7 @@ dependencies = [
     "orjson>=3.9",
     "xxhash>=3.4",
     "fsspec>=2024.2",
+    "flowstate-asof-core>=0.1.0",
 ]
 
 [project.optional-dependencies]

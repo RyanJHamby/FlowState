@@ -163,6 +163,8 @@ An NVMe LRU cache tier sits between cloud object storage (S3/GCS/Azure via fsspe
 
 ## 6. GPU Data Feeding
 
+> **Status:** the GPU path (kvikio GPUDirect Storage, CUDA streams, pinned memory) has not been tested on a real GPU. The test suite covers the CPU fallbacks only; no GPU performance claims are made.
+
 ### 6.1 Pipeline
 
 ```

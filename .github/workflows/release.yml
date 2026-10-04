@@ -1,0 +1,118 @@
+name: Release
+
+# Tag vX.Y.Z -> build wheels + sdists, publish to PyPI, create GitHub release.
+# workflow_dispatch builds everything but never publishes (dry run).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  core-wheels:
+    name: flowstate-asof-core wheels (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,    target: x86_64,  manylinux: auto }
+          - { os: ubuntu-latest,    target: aarch64, manylinux: auto }
+          - { os: macos-13,         target: x86_64 }
+          - { os: macos-14,         target: aarch64 }
+          - { os: windows-latest,   target: x64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: flowstate-core
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-core-${{ matrix.os }}-${{ matrix.target }}
+          path: flowstate-core/dist/*.whl
+
+  core-sdist:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: flowstate-core
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist-core
+          path: flowstate-core/dist/*.tar.gz
+
+  python-dist:
+    name: flowstate-asof (pure Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m pip install build && python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-python
+          path: dist/*
+
+  smoke-test:
+    name: install from built wheels (${{ matrix.os }})
+    needs: [core-wheels, python-dist]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/download-artifact@v4
+        with: { pattern: "wheels-core-*", path: dist, merge-multiple: true }
+      - uses: actions/download-artifact@v4
+        with: { name: dist-python, path: dist }
+      - name: Install from local wheels only and run the README example
+        shell: bash
+        run: |
+          pip install --find-links dist flowstate-asof-core
+          pip install --find-links dist --pre flowstate-asof
+          python -c "import flowstate_core; print('rust kernel ok')"
+          python examples/try_it.py
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [core-wheels, core-sdist, python-dist, smoke-test]
+    runs-on: ubuntu-latest
+    environment: pypi            # configure PyPI trusted publishers for both projects
+    permissions:
+      id-token: write            # PyPI trusted publishing (no API token stored)
+      contents: write            # GitHub release
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - name: Split by project
+        run: |
+          mkdir -p dist-core dist-main
+          mv artifacts/flowstate_asof_core-* dist-core/
+          mv artifacts/flowstate_asof-* dist-main/
+      # The kernel must be on PyPI before the package that depends on it.
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with: { packages-dir: dist-core }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with: { packages-dir: dist-main }
+      - name: GitHub release from CHANGELOG
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" '$0 ~ "^## \\["v"\\]" {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" dist-core/* dist-main/* \
+            --title "$GITHUB_REF_NAME" --notes-file notes.md
