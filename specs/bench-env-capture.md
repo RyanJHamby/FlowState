@@ -15,7 +15,8 @@ non_goals:
 risk_tier: 2
 max_runs: 3
 autonomy: inherit
-status: draft
+status: ready
+issue: 6
 ---
 
 ## Why
@@ -38,3 +39,4 @@ pages or ASLR. A server run is only credible if those are captured automatically
 - `memory_gb`, `numa_nodes`, `rustc`, `cpu_model` use whatever stdlib or `subprocess` call works on Linux and macOS, else `"unknown"`
 
 ## Log
+- 2026-10-30 ready, issue #6

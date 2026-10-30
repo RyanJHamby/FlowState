@@ -15,7 +15,8 @@ non_goals:
 risk_tier: 2
 max_runs: 3
 autonomy: inherit
-status: draft
+status: ready
+issue: 5
 ---
 
 ## Why
@@ -34,3 +35,4 @@ within a run and reporting intervals is the minimum a skeptic expects.
 - Median is the only `stat` required; reject others with `ValueError`.
 
 ## Log
+- 2026-10-30 ready, issue #5

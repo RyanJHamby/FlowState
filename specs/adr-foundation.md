@@ -15,7 +15,8 @@ non_goals:
 risk_tier: 1
 max_runs: 3
 autonomy: inherit
-status: draft
+status: ready
+issue: 8
 ---
 
 ## Why
@@ -33,3 +34,4 @@ consequences as a separate, reviewable record, and a place to add the next one.
 - The test rejects the word "outperform" and any "N x faster/slower" string.
 
 ## Log
+- 2026-10-30 ready, issue #8
