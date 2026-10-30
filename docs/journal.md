@@ -16,3 +16,11 @@ Chose separate GitHub environments (pypi, pypi-core) per package: PyPI allows on
 ## 2026-10-04 17:29 EDT (at 1b190c6)
 
 Fixed Linux CI: price_level.h used std::vector without <vector> (worked on macOS libc++, broke GCC). Dead end avoided: DuckDB ASOF JOIN did not finish at 1M x 1K symbols, so it is opt-in in reproduce.py.
+
+## 2026-10-30 14:12 EDT (at fe67b08)
+
+Ran `asof-join-spread` → [results/2026-10-30-1412-asof-join-spread](../results/2026-10-30-1412-asof-join-spread) (exit 0, 21s). Notes: _TODO_
+
+## 2026-10-30 14:12 EDT (at fe67b08)
+
+Re-ran the as-of join benchmark with min/max (reproduce.py now prints them), 10 runs on Apple M4 laptop. FlowState is slower than Polars in both captures: 0.74x at 1M rows and 0.70x at 10M here, 0.71x at both on 2026-10-04. Ranges across the 10 runs do not overlap between the two engines. Absolute times drifted between sessions (Polars 8.7 ms on 10-04, 9.9 ms on 10-30 at 1M rows), so only same-run comparisons are meaningful. Single machine, synthetic data, no thermal or power-state control recorded.
