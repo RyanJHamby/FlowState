@@ -1,0 +1,17 @@
+FlowState as-of join benchmark
+  hardware : Apple M4, 10 logical cores, 32 GB RAM
+  os       : macOS-26.6.2-arm64-arm-64bit-Mach-O
+  python   : 3.14.3
+  flowstate: 0.1.0 (Rust kernel: yes)
+  polars   : 1.38.1   pandas: 3.0.6   duckdb: 1.5.0   pyarrow: 23.0.1
+  method   : median of 10 runs after 2 warmup; backward join, tolerance none; excludes data generation
+
+dataset: 1,000,000 left x 500,000 right rows, 1,000 symbols, synthetic random-walk quotes (seeds 42/99), globally timestamp-sorted
+  polars            9.9 ms   (min 9.3, max 10.9; 1.00x vs polars)
+  flowstate        13.3 ms   (min 12.7, max 13.8; 0.74x vs polars)
+  pandas           80.8 ms   (min 78.7, max 84.9; 0.12x vs polars)
+
+dataset: 10,000,000 left x 5,000,000 right rows, 1,000 symbols, synthetic random-walk quotes (seeds 42/99), globally timestamp-sorted
+  polars          135.8 ms   (min 127.2, max 145.3; 1.00x vs polars)
+  flowstate       194.9 ms   (min 182.7, max 206.2; 0.70x vs polars)
+  pandas          843.4 ms   (min 838.0, max 858.9; 0.16x vs polars)

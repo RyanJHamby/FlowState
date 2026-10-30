@@ -6,7 +6,7 @@
 
 Prints the exact hardware, library versions and dataset parameters alongside
 the timings so a result can be compared or challenged. Timings are the median
-of --runs runs after --warmup warmup runs; data generation, sorting and
+(with min and max) of --runs runs after --warmup warmup runs; data generation, sorting and
 table construction are excluded. Every engine's output is checked against
 Polars before timing.
 """
@@ -78,7 +78,14 @@ def make_data(n: int, n_symbols: int, seed: int) -> dict[str, np.ndarray]:
     return {"timestamp": ts[order], "px": px[order], "symbol": names[sym_id[order]]}
 
 
-def median_ms(fn, warmup: int, runs: int) -> float:
+class Timing(float):
+    """Median in ms; .lo and .hi are the fastest and slowest timed run."""
+
+    lo: float
+    hi: float
+
+
+def median_ms(fn, warmup: int, runs: int) -> Timing:
     for _ in range(warmup):
         fn()
     times = []
@@ -86,7 +93,9 @@ def median_ms(fn, warmup: int, runs: int) -> float:
         t0 = time.perf_counter()
         fn()
         times.append((time.perf_counter() - t0) * 1e3)
-    return statistics.median(times)
+    t = Timing(statistics.median(times))
+    t.lo, t.hi = min(times), max(times)
+    return t
 
 
 def bench(n_left: int, n_right: int, n_symbols: int, warmup: int, runs: int, engines: set[str]):
@@ -199,7 +208,7 @@ def main() -> None:
         res = bench(n_l, n_r, n_s, args.warmup, args.runs, engines)
         for name, ms in sorted(res.items(), key=lambda kv: kv[1]):
             rel = res["polars"] / ms
-            print(f"  {name:<10} {ms:>10.1f} ms   ({rel:.2f}x vs polars)")
+            print(f"  {name:<10} {ms:>10.1f} ms   (min {ms.lo:.1f}, max {ms.hi:.1f}; {rel:.2f}x vs polars)")
 
 
 if __name__ == "__main__":
