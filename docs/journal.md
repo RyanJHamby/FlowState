@@ -36,3 +36,7 @@ Tested the 'stale March build' explanation: built the kernel and Python package 
 ## 2026-10-30 14:49 EDT (at b8f9fc3)
 
 Planned the benchmark/foundations work as specs. Wrote five specs with strict-xfail failing tests (bench-result-equality, bench-interleaved-timing, bench-env-capture, bench-phase-breakdown, adr-foundation), a method v1 proposal and a ranked roadmap of the rest. Each test was shown failing for the right reason (missing module) and shown satisfiable with a throwaway reference implementation, which was then deleted. Caught three test bugs on the way: a pandas NaN-vs-null assumption, two ADR tests that passed vacuously on an empty directory, and over-long lines that would have failed CI lint. Found that Polars and FlowState outputs already agree on a small dataset, but with different timestamp dtypes (Int64 vs timestamp[ns, UTC]). FlowState is not onboarded to autopilot (no .autopilot/), so the handshake was run against drillpad's repo.yaml and is provisional.
+
+## 2026-10-30 16:52 EDT (at 2d3e6df)
+
+Filed the five spec issues (#4 bench-result-equality, #5 bench-interleaved-timing, #6 bench-env-capture, #7 bench-phase-breakdown, #8 adr-foundation). Ryan ran gh issue create himself because the call was blocked in my session. Specs marked ready with their issue numbers; ap specs shows no problems; handshake still ACCEPTED (provisional: FlowState has no .autopilot yet).

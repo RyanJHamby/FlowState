@@ -15,7 +15,8 @@ non_goals:
 risk_tier: 2
 max_runs: 3
 autonomy: inherit
-status: draft
+status: ready
+issue: 7
 ---
 
 ## Why
@@ -38,3 +39,4 @@ know how much of the measured gap is wrapper overhead versus kernel time.
 - Time one call per sample with `time.perf_counter`; no need for the interleaved harness yet.
 
 ## Log
+- 2026-10-30 ready, issue #7

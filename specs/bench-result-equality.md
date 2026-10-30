@@ -15,7 +15,8 @@ non_goals:
 risk_tier: 2
 max_runs: 3
 autonomy: inherit
-status: draft
+status: ready
+issue: 4
 ---
 
 ## Why
@@ -41,3 +42,4 @@ A skeptic will say so, and the published post is currently open to that attack.
 - Style: type hints, short functions, `from __future__ import annotations`, ruff clean (`ruff check benchmarks tests`).
 
 ## Log
+- 2026-10-30 ready, issue #4
