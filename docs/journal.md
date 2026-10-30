@@ -24,3 +24,11 @@ Ran `asof-join-spread` → [results/2026-10-30-1412-asof-join-spread](../results
 ## 2026-10-30 14:12 EDT (at fe67b08)
 
 Re-ran the as-of join benchmark with min/max (reproduce.py now prints them), 10 runs on Apple M4 laptop. FlowState is slower than Polars in both captures: 0.74x at 1M rows and 0.70x at 10M here, 0.71x at both on 2026-10-04. Ranges across the 10 runs do not overlap between the two engines. Absolute times drifted between sessions (Polars 8.7 ms on 10-04, 9.9 ms on 10-30 at 1M rows), so only same-run comparisons are meaningful. Single machine, synthetic data, no thermal or power-state control recorded.
+
+## 2026-10-30 14:23 EDT (at fdc202b)
+
+Ran `asof-join-march-build-3c7486a` → [results/2026-10-30-1423-asof-join-march-build-3c7486a](../results/2026-10-30-1423-asof-join-march-build-3c7486a) (exit 0, 10s). Notes: _TODO_
+
+## 2026-10-30 14:23 EDT (at fdc202b)
+
+Tested the 'stale March build' explanation: built the kernel and Python package at 3c7486a (README that claimed 1.8x) in a separate worktree with the same pinned Polars 1.38.1/pandas/pyarrow and Python 3.14.3, and ran today's reproduce.py against it, 10 runs, 1M x 500K rows, 1K symbols. FlowState 12.9 ms vs Polars 8.9 ms: still slower, ranges do not overlap. So the March kernel does not explain the 1.8x claim. Not ruled out: a different dataset, or Polars being faster now than in March (the March README says only 'Polars 1.x', no version). The March kernel was built with today's Rust toolchain, and the benchmark script is today's, not March's. Note: pow records git sha of the main checkout; the code under test was the 3c7486a worktree.

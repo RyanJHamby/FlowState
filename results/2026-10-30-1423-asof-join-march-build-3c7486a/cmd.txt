@@ -1,0 +1,1 @@
+/private/tmp/claude-501/-Users-ryanhamby-dev-drillpad/6704cbf7-1607-4d44-808b-1a4cc22ae675/scratchpad/wt/.venv/bin/python -W ignore /private/tmp/claude-501/-Users-ryanhamby-dev-drillpad/6704cbf7-1607-4d44-808b-1a4cc22ae675/scratchpad/wt/reproduce_current.py --runs 10 
